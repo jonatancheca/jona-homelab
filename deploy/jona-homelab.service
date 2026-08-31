@@ -1,0 +1,36 @@
+[Unit]
+Description=Jona Homelab Wake-on-LAN
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=jona-homelab
+Group=jona-homelab
+WorkingDirectory=/opt/jona-homelab/current
+EnvironmentFile=/etc/jona-homelab.env
+ExecStart=/usr/bin/node /opt/jona-homelab/current/server/index.mjs
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=15
+UMask=0077
+StateDirectory=jona-homelab
+StateDirectoryMode=0700
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,15 @@
+node_modules/
+.nuxt/
+.output/
+.data/
+data/
+.env
+.env.*
+!.env.example
+*.sqlite*
+*.db*
+test-results/
+playwright-report/
+coverage/
+artifacts/
+*.log
