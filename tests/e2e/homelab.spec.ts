@@ -39,10 +39,12 @@ test('register, reject duplicate, edit, wake, search, reload and delete', async 
   await expect(page.getByRole('heading', { name: 'Your first device starts here' })).toBeVisible()
 })
 
-test('API enforces CSRF, payload size, IDs, registered MAC and cooldown', async ({ request }) => {
-  const headers = { origin: 'http://127.0.0.1:3123', 'content-type': 'application/json' }
-  expect((await request.post('/api/devices', { data: { name: 'Blocked', mac: 'aabbccddee01' } })).status()).toBe(403)
-  expect((await request.post('/api/devices', { headers: { ...headers, origin: 'https://evil.test' }, data: {} })).status()).toBe(403)
+test('API enforces JSON, payload size, IDs, registered MAC and cooldown', async ({ request }) => {
+  const headers = { 'content-type': 'application/json' }
+  const noOrigin = await request.post('/api/devices', { data: { name: 'No origin', mac: 'aabbccddee01' } })
+  expect(noOrigin.status()).toBe(201)
+  const noOriginDevice = await noOrigin.json()
+  expect((await request.delete(`/api/devices/${noOriginDevice.id}`, { headers, data: {} })).status()).toBe(204)
   expect((await request.post('/api/devices', { headers: { ...headers, 'content-type': 'text/plain' }, data: '{}' })).status()).toBe(415)
   expect((await request.post('/api/devices', { headers, data: '{' })).status()).toBe(400)
   expect((await request.post('/api/devices', { headers, data: 'x'.repeat(5000) })).status()).toBe(413)
@@ -59,7 +61,7 @@ test('API enforces CSRF, payload size, IDs, registered MAC and cooldown', async 
 })
 
 test('cards and dialogs fit 320, 390 and 1280px, including long names', async ({ page, request }, testInfo) => {
-  const headers = { origin: 'http://127.0.0.1:3123' }
+  const headers = { 'content-type': 'application/json' }
   const name = 'Server-' + 'X'.repeat(70)
   const created = await request.post('/api/devices', { headers, data: { name, mac: 'AA:BB:CC:DD:EE:03' } })
   const device = await created.json()
@@ -89,7 +91,7 @@ test('network errors are visible and can be retried', async ({ page }) => {
 })
 
 test('failed wake is visible and does not invent a sent timestamp', async ({ page, request }) => {
-  const headers = { origin: 'http://127.0.0.1:3123' }
+  const headers = { 'content-type': 'application/json' }
   const created = await request.post('/api/devices', { headers, data: { name: 'Send failure', mac: 'AA:BB:CC:DD:EE:04' } })
   const device = await created.json()
   await page.route(`**/api/devices/${device.id}/wake`, route => route.fulfill({ status: 502, contentType: 'application/json', body: JSON.stringify({ data: { message: 'The packet could not be sent.', retryAfter: 5 } }) }))

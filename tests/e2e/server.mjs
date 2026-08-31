@@ -11,7 +11,7 @@ receiver.on('message', () => {})
 const child = spawn(process.execPath, [resolve('node_modules/nuxt/bin/nuxt.mjs'), 'dev', '--host', '127.0.0.1', '--port', '3123'], {
   windowsHide: true,
   stdio: 'inherit',
-  env: { ...process.env, NODE_ENV: 'development', AUTH_DEV_BYPASS: 'true', APP_ORIGIN: 'http://127.0.0.1:3123',
+  env: { ...process.env, NODE_ENV: 'development',
     DB_PATH: join(directory, 'test.sqlite'), WOL_BROADCAST: '127.0.0.1', WOL_SOURCE_IP: '127.0.0.1', WOL_PORT: String(receiver.address().port) },
 })
 let stopping = false

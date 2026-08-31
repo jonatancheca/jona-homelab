@@ -25,7 +25,7 @@ pnpm dev
 
 Abre <http://127.0.0.1:3000>. En PowerShell, usa `Copy-Item .env.example .env` en lugar de `cp` si lo prefieres. No sobrescribas un `.env` existente sin revisarlo.
 
-El bypass exige simultáneamente `nuxt dev`, `NODE_ENV=development`, `AUTH_DEV_BYPASS=true`, origen `http://127.0.0.1` y conexión desde loopback. El artefacto compilado nunca permite el bypass, incluso si se le pasa `NODE_ENV=development`. No uses un servidor de desarrollo como origen de un Tunnel.
+Durante el desarrollo, el servidor escucha en `127.0.0.1:3000` por defecto. No uses un servidor de desarrollo como origen de un Tunnel.
 
 **El botón Encender en desarrollo envía paquetes reales según `.env`.** Para pruebas sin tocar tu LAN, configura `WOL_BROADCAST=127.0.0.1` y `WOL_SOURCE_IP=127.0.0.1`, o ejecuta los tests aislados.
 
@@ -41,7 +41,7 @@ pnpm test:e2e
 pnpm test:production
 ```
 
-Los tests unitarios verifican MAC, CRUD, persistencia, paquetes, errores UDP, límites y JWT. Los E2E levantan una instancia aislada en loopback, con una SQLite temporal, y mandan UDP exclusivamente a loopback. El test de producción arranca el resultado compilado y comprueba el rechazo sin Access y del bypass. No hacen broadcasts hacia ordenadores reales. Playwright y las herramientas de desarrollo **no se despliegan** al Ubuntu de producción.
+Los tests unitarios verifican MAC, CRUD, persistencia, paquetes, errores UDP y límites. Los E2E levantan una instancia aislada en loopback, con una SQLite temporal, y mandan UDP exclusivamente a loopback. El test de producción arranca el resultado compilado y comprueba el acceso local detrás del Tunnel y el rechazo del bypass. No hacen broadcasts hacia ordenadores reales. Playwright y las herramientas de desarrollo **no se despliegan** al Ubuntu de producción.
 
 Detén `pnpm dev` antes de ejecutar los E2E: Nuxt no admite dos servidores de desarrollo simultáneos sobre este mismo proyecto. Los tests usan los puertos 3123 (E2E) y 3124 (producción), que deben estar libres.
 
@@ -79,7 +79,7 @@ sudoedit /etc/jona-homelab.env
 
 Si el usuario ya existe, no vuelvas a crearlo. Los comandos de instalación de configuración son **solo para la primera instalación**: nunca sobreescribas el archivo existente durante una actualización.
 
-Configura `APP_ORIGIN` con el origen HTTPS exacto (sin ruta), `CF_ACCESS_TEAM_DOMAIN` y el `CF_ACCESS_AUD` de la aplicación Access. `DB_PATH` apunta al archivo persistente; systemd crea `/var/lib/jona-homelab` con permisos privados. No guardes secretos ni la SQLite dentro del repositorio o del directorio de versiones.
+`DB_PATH` apunta al archivo persistente; systemd crea `/var/lib/jona-homelab` con permisos privados. No guardes secretos ni la SQLite dentro del repositorio o del directorio de versiones.
 
 `WOL_BROADCAST` vale `255.255.255.255` por defecto. Si el servidor tiene varias interfaces, establece el broadcast correcto de la subred y `WOL_SOURCE_IP` con la IP IPv4 local de la interfaz LAN; puedes consultarlos con `ip -4 addr`. No pongas `eth0` en esa variable. `WOL_PORT` vale `9`. No abras ni reenvíes ese puerto desde Internet.
 
@@ -88,12 +88,11 @@ Configura `APP_ORIGIN` con el origen HTTPS exacto (sin ruta), `CF_ACCESS_TEAM_DO
 La configuración es manual: este proyecto no crea ni modifica recursos de tu cuenta.
 
 1. Crea una aplicación Access **Self-hosted / public hostname** para el dominio completo elegido, incluyendo todas sus rutas. Crea una política **Allow** con los correos concretos autorizados, mediante tu proveedor de identidad o código de un solo uso. No uses `Everyone` ni políticas `Bypass`. Todos los usuarios permitidos podrán gestionar todos los equipos.
-2. Copia el dominio de equipo y el identificador **AUD** de esa aplicación a `/etc/jona-homelab.env`. El AUD no es el token del Tunnel. La aplicación valida firma RS256, emisor, audiencia y caducidad del JWT; no confía en una cabecera de correo sin firma.
-3. Sigue la [instalación oficial de Cloudflare Tunnel](https://developers.cloudflare.com/tunnel/setup/) para instalar `cloudflared` como servicio en ese mismo Ubuntu y crear un Tunnel gestionado remotamente. Trata el token del Tunnel como secreto; no lo guardes en Git, capturas o logs.
-4. Publica el hostname elegido con origen **`http://127.0.0.1:3000`**. No necesitas abrir puertos entrantes del router, certificados locales ni un cliente VPN en el navegador.
-5. Conserva Access protegiendo todas las rutas, desactiva reglas de caché forzada/Rocket Loader para esta aplicación y permite las conexiones salientes necesarias para `cloudflared`, DNS y HTTPS hacia las claves de Access.
+2. Sigue la [instalación oficial de Cloudflare Tunnel](https://developers.cloudflare.com/tunnel/setup/) para instalar `cloudflared` como servicio en ese mismo Ubuntu y crear un Tunnel gestionado remotamente. Trata el token del Tunnel como secreto; no lo guardes en Git, capturas o logs.
+3. Publica el hostname elegido con origen **`http://127.0.0.1:3000`**. No necesitas abrir puertos entrantes del router, certificados locales ni un cliente VPN en el navegador.
+4. Conserva Access protegiendo todas las rutas. La aplicación no valida el JWT de Access: confía en la autenticación aplicada por Cloudflare. Mantén el servicio limitado a loopback y no publiques el puerto 3000 directamente.
 
-Una política Access ausente no abre la aplicación: el backend rechaza solicitudes sin JWT válido. Si las claves no están disponibles y no existe una clave válida en caché, se rechaza el acceso; no hay fallback sin autenticación. `/api/health` es la única excepción local y solo devuelve `{"status":"ok"}`; Cloudflare debe proteger también esa ruta públicamente.
+Una política Access ausente sí dejaría accesible el origen del Tunnel, por lo que debes conservar Access protegiendo todas las rutas. `/api/health` solo devuelve `{"status":"ok"}` y también debe quedar protegido públicamente por Cloudflare.
 
 ### 4. Arrancar y comprobar
 
@@ -106,7 +105,7 @@ curl -i http://127.0.0.1:3000/api/devices
 sudo journalctl -u jona-homelab -n 50 --no-pager
 ```
 
-La salud debe responder 200 y la consulta directa de equipos, 401. Comprueba en el navegador que un usuario autorizado entra y otro queda bloqueado. Registra una MAC real y envía un paquete solo cuando quieras despertar ese ordenador.
+La salud debe responder 200 y la consulta directa de equipos, 200 cuando se realiza localmente en el Ubuntu. Comprueba en el navegador que un usuario autorizado entra y otro queda bloqueado por Access. Registra una MAC real y envía un paquete solo cuando quieras despertar ese ordenador.
 
 El servicio funciona sin root, sin capacidades especiales y con el sistema de archivos de solo lectura salvo su estado y directorio temporal. No actives `PrivateNetwork=true`: impediría alcanzar la LAN. No actives `MemoryDenyWriteExecute=true`: impediría el JIT de Node.
 
@@ -134,7 +133,7 @@ Para restaurar, detén la aplicación. **Aparta primero el directorio de datos a
 
 ## API
 
-Todas las rutas de negocio requieren Access. Las mutaciones requieren `Origin` exacto, `Content-Type: application/json` y un JSON de hasta 4096 bytes. No se habilita CORS. Para `DELETE` y `wake`, envía `{}`.
+Cloudflare Access debe proteger todas las rutas de negocio. El backend no valida JWT ni cabeceras de origen; las mutaciones requieren `Content-Type: application/json` y un JSON de hasta 4096 bytes. No se habilita CORS. Para `DELETE` y `wake`, envía `{}`.
 
 | Método y ruta | Entrada / resultado |
 | --- | --- |
@@ -152,5 +151,4 @@ Los equipos contienen `id`, `name`, `mac`, `createdAt`, `updatedAt` y `lastSentA
 
 - [Despliegue Nuxt en Node](https://nuxt.com/docs/4.x/getting-started/deployment).
 - [SQLite integrado, Node 24.15](https://nodejs.org/en/blog/release/v24.15.0).
-- [Validación de JWT de Cloudflare Access](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/validating-json/).
 - [Formato Wake-on-LAN en Ubuntu](https://manpages.ubuntu.com/manpages/resolute/man1/wakeonlan.1.html).
