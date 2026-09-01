@@ -1,5 +1,32 @@
 import { test, expect } from '@playwright/test'
 
+test('shows focused device workspace without promotional navigation', async ({ page, request }) => {
+  const headers = { 'content-type': 'application/json' }
+  const name = 'Issue four server'
+  const created = await request.post('/api/devices', { headers, data: { name, mac: 'AA:BB:CC:DD:EE:05' } })
+  const device = await created.json()
+
+  await page.goto('/')
+  await expect(page.getByRole('heading', { name: 'My devices', exact: true })).toBeVisible()
+  await expect(page.getByText('MY SPACE', { exact: true })).toHaveCount(0)
+  await expect(page.getByRole('link', { name: 'Devices', exact: true })).toHaveCount(0)
+  await expect(page.getByText('My space', { exact: true })).toHaveCount(0)
+  await expect(page.getByText('Registered devices', { exact: true })).toHaveCount(0)
+  await expect(page.getByText('Last packet sent', { exact: true })).toHaveCount(0)
+  await expect(page.getByText('Power method', { exact: true })).toHaveCount(0)
+  await expect(page.getByText('Small panel.', { exact: true })).toHaveCount(0)
+  await expect(page.getByText('Made for your homelab.', { exact: true })).toHaveCount(0)
+  await expect(page.getByText('Local inside. Accessible from anywhere.', { exact: true })).toHaveCount(0)
+  await expect(page.getByText('A small packet to get everything moving.', { exact: true })).toHaveCount(0)
+
+  const card = page.getByRole('article', { name, exact: true })
+  await expect(card.locator('.device-name')).toHaveText(name)
+  await expect(card.locator('.device-tag')).toHaveCount(0)
+  await expect(card.locator('h3')).toHaveCount(0)
+
+  await request.delete(`/api/devices/${device.id}`, { headers, data: {} })
+})
+
 test('register, reject duplicate, edit, wake, search, reload and delete', async ({ page }) => {
   await page.goto('/')
   await expect(page.getByRole('heading', { name: 'Your first device starts here' })).toBeVisible()

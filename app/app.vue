@@ -24,7 +24,6 @@ let timer: ReturnType<typeof setInterval> | undefined
 let toastTimer: ReturnType<typeof setTimeout> | undefined
 
 const filtered = computed(() => devices.value.filter(device => `${device.name} ${device.mac}`.toLocaleLowerCase('en').includes(search.value.toLocaleLowerCase('en').trim())))
-const latest = computed(() => devices.value.map(device => device.lastSentAt).filter((date): date is string => !!date).sort().at(-1))
 
 function errorMessage(error: unknown): string {
   const failure = error as { data?: { data?: { message?: string }, message?: string }, statusCode?: number }
@@ -131,35 +130,21 @@ onUnmounted(() => { clearInterval(timer); clearTimeout(toastTimer) })
         <span class="brand-symbol"><AppIcon name="server" /></span>
         <span>jona<span class="brand-light"> / homelab</span></span>
       </a>
-      <div class="sidebar-section">MY SPACE</div>
-      <a class="nav-item active" href="/" aria-current="page"><AppIcon name="grid" /> Devices <span class="nav-count">{{ devices.length }}</span></a>
-      <div class="sidebar-tip">
-        <AppIcon name="network" />
-        <strong>Small panel.<br />Big possibilities.</strong>
-        <p>Your homelab, available when you need it.</p>
-      </div>
-      <div class="sidebar-bottom"><span class="avatar">JH</span><div><strong>Jona Homelab</strong><span>Private panel</span></div><span class="privacy-dot"></span></div>
     </aside>
 
     <div class="workspace">
       <header class="topbar">
-        <span class="breadcrumb">My space <span>/</span> <strong>Devices</strong></span>
         <span v-if="mode" class="access-badge"><AppIcon name="shield" />{{ mode === 'access' ? 'Cloudflare Access' : 'Local development' }}</span>
       </header>
       <main id="main">
-        <section class="heading-row">
-          <div><p class="eyebrow">WAKE-ON-LAN</p><h1>Your network, one tap away<span>.</span></h1><p class="subtitle">Wake your devices. Wherever you are.</p></div>
-          <button class="button primary add-button" @click="openForm()"><AppIcon name="plus" /> Add device</button>
-        </section>
-
-        <section class="overview" aria-label="Summary">
-          <div class="overview-item"><span class="summary-icon mint"><AppIcon name="server" /></span><div><span class="summary-label">Registered devices</span><strong>{{ loading ? '—' : devices.length }} <small>{{ devices.length === 1 ? 'device' : 'devices' }}</small></strong></div></div>
-          <div class="overview-item"><span class="summary-icon lavender"><AppIcon name="clock" /></span><div><span class="summary-label">Last packet sent</span><strong class="summary-date">{{ latest ? dateLabel(latest) : 'No packets yet' }}</strong></div></div>
-          <div class="overview-item network-summary"><span class="summary-icon sand"><AppIcon name="network" /></span><div><span class="summary-label">Power method</span><strong class="summary-date">Magic packet <span class="tiny-tag">UDP</span></strong></div></div>
-        </section>
-
         <section aria-labelledby="devices-heading">
-          <div class="section-heading"><div class="section-title"><h2 id="devices-heading">My devices</h2><span class="count">{{ devices.length }}</span></div><label class="search"><AppIcon name="search" /><input v-model="search" type="search" aria-label="Search devices" placeholder="Search by name or MAC…" /></label></div>
+          <div class="section-heading">
+            <div class="section-title"><h1 id="devices-heading">My devices</h1><span class="count">{{ devices.length }}</span></div>
+            <div class="section-actions">
+              <label class="search"><AppIcon name="search" /><input v-model="search" type="search" aria-label="Search devices" placeholder="Search by name or MAC…" /></label>
+              <button class="button primary add-button" @click="openForm()"><AppIcon name="plus" /> Add device</button>
+            </div>
+          </div>
 
           <div v-if="loadError" class="empty-state error-state" role="alert"><AppIcon name="info" /><h3>We couldn't load your devices</h3><p>{{ loadError }}</p><button class="button secondary" @click="loadDevices()"><AppIcon name="refresh" /> Retry</button></div>
           <div v-else-if="loading" class="empty-state" role="status"><span class="spinner"></span><p>Loading devices…</p></div>
@@ -167,8 +152,8 @@ onUnmounted(() => { clearInterval(timer); clearTimeout(toastTimer) })
           <div v-else-if="!filtered.length" class="empty-state compact"><AppIcon name="search" /><h3>No matches</h3><p>Try another name or MAC address.</p><button class="button secondary" @click="search = ''">Clear search</button></div>
           <div v-else class="device-grid">
             <article v-for="device in filtered" :key="device.id" class="device-card" :aria-label="device.name">
-              <div class="card-top"><span class="device-symbol"><AppIcon name="server" /></span><span class="device-tag">WAKE-ON-LAN</span><div class="card-tools"><button class="icon-button" :aria-label="`Edit ${device.name}`" :disabled="sending.has(device.id)" @click="openForm(device)"><AppIcon name="edit" /></button><button class="icon-button danger-hover" :aria-label="`Delete ${device.name}`" :disabled="sending.has(device.id)" @click="confirmDelete(device)"><AppIcon name="trash" /></button></div></div>
-              <h3>{{ device.name }}</h3><p class="mac-label">MAC ADDRESS</p><code class="mac">{{ device.mac }}</code>
+              <div class="card-top"><span class="device-symbol"><AppIcon name="server" /></span><strong class="device-name">{{ device.name }}</strong><div class="card-tools"><button class="icon-button" :aria-label="`Edit ${device.name}`" :disabled="sending.has(device.id)" @click="openForm(device)"><AppIcon name="edit" /></button><button class="icon-button danger-hover" :aria-label="`Delete ${device.name}`" :disabled="sending.has(device.id)" @click="confirmDelete(device)"><AppIcon name="trash" /></button></div></div>
+              <p class="mac-label">MAC ADDRESS</p><code class="mac">{{ device.mac }}</code>
               <div class="last-sent"><AppIcon name="clock" /><span>{{ device.lastSentAt ? `Last sent: ${dateLabel(device.lastSentAt)}` : 'No packets sent' }}</span></div>
               <button class="button wake-button" :disabled="sending.has(device.id) || remaining(device.id) > 0" @click="wake(device)"><span v-if="sending.has(device.id)" class="spinner small"></span><AppIcon v-else name="power" />{{ sending.has(device.id) ? 'Sending…' : remaining(device.id) ? `Wait ${remaining(device.id)} s` : 'Wake' }}<AppIcon v-if="!sending.has(device.id) && !remaining(device.id)" class="wake-arrow" name="arrow" /></button>
               <p v-if="feedback[device.id]" class="card-feedback" :class="{ failure: feedback[device.id]!.error }" :role="feedback[device.id]!.error ? 'alert' : 'status'"><AppIcon :name="feedback[device.id]!.error ? 'info' : 'check'" />{{ feedback[device.id]!.message }}</p>
@@ -177,8 +162,7 @@ onUnmounted(() => { clearInterval(timer); clearTimeout(toastTimer) })
           </div>
         </section>
 
-        <aside class="info-banner"><span class="info-symbol"><AppIcon name="info" /></span><div><strong>A small packet to get everything moving.</strong><p>The device must have Wake-on-LAN enabled and be connected via Ethernet. “Packet sent” confirms the packet was sent, not that the device has started.</p></div><span class="lan-label">ON YOUR LOCAL NETWORK</span></aside>
-        <footer><span>Made for your homelab.</span><span>Local inside. Accessible from anywhere.</span></footer>
+        <aside class="info-banner"><span class="info-symbol"><AppIcon name="info" /></span><div><p>The device must have Wake-on-LAN enabled and be connected via Ethernet. “Packet sent” confirms the packet was sent, not that the device has started.</p></div><span class="lan-label">ON YOUR LOCAL NETWORK</span></aside>
       </main>
     </div>
 
