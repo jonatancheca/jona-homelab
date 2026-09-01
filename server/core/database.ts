@@ -7,12 +7,71 @@ import { AppError } from './errors.ts'
 
 export const WAKE_COOLDOWN_MS = 5000
 
+const DATABASE_MIGRATIONS = [
+  {
+    version: 1,
+    sql: `
+      CREATE TABLE devices (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        mac TEXT NOT NULL UNIQUE,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL,
+        lastSentAt TEXT,
+        lastAttemptMs INTEGER
+      );
+    `,
+  },
+  {
+    version: 2,
+    sql: 'CREATE INDEX idx_devices_name_nocase ON devices(name COLLATE NOCASE, id);',
+  },
+] as const
+
+const CURRENT_DATABASE_VERSION = DATABASE_MIGRATIONS.length
+
 interface DeviceRow extends Device {
   lastAttemptMs: number | null
 }
 
 function publicDevice(row: DeviceRow): Device {
   return { id: row.id, name: row.name, mac: row.mac, createdAt: row.createdAt, updatedAt: row.updatedAt, lastSentAt: row.lastSentAt }
+}
+
+function readDatabaseVersion(database: DatabaseSync): number {
+  const row = database.prepare('PRAGMA user_version').get() as { user_version?: unknown }
+  if (typeof row.user_version !== 'number' || !Number.isInteger(row.user_version) || row.user_version < 0) {
+    throw new Error('Invalid database version. The schema was not modified.')
+  }
+  return row.user_version
+}
+
+function migrateDatabase(database: DatabaseSync): void {
+  let version = readDatabaseVersion(database)
+  if (version > CURRENT_DATABASE_VERSION) {
+    throw new Error('Unsupported database version. The schema was not modified.')
+  }
+
+  database.exec('PRAGMA journal_mode = WAL;')
+  while (version < CURRENT_DATABASE_VERSION) {
+    const migration = DATABASE_MIGRATIONS[version]
+    if (!migration || migration.version !== version + 1) {
+      throw new Error(`Missing database migration from version ${version}.`)
+    }
+
+    database.exec('BEGIN IMMEDIATE;')
+    try {
+      database.exec(migration.sql)
+      database.exec(`PRAGMA user_version = ${migration.version};`)
+      database.exec('COMMIT;')
+    }
+    catch (error) {
+      try { database.exec('ROLLBACK;') }
+      catch { /* Preserve the migration error. */ }
+      throw error
+    }
+    version = migration.version
+  }
 }
 
 export class DeviceStore {
@@ -22,25 +81,7 @@ export class DeviceStore {
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true, mode: 0o700 })
     this.database = new DatabaseSync(path, { timeout: 5000 })
     try {
-      this.database.exec('PRAGMA journal_mode = WAL;')
-      const version = this.database.prepare('PRAGMA user_version').get()!.user_version
-      if (version === 0) {
-        this.database.exec(`
-          BEGIN IMMEDIATE;
-          CREATE TABLE devices (
-            id TEXT PRIMARY KEY,
-            name TEXT NOT NULL,
-            mac TEXT NOT NULL UNIQUE,
-            createdAt TEXT NOT NULL,
-            updatedAt TEXT NOT NULL,
-            lastSentAt TEXT,
-            lastAttemptMs INTEGER
-          );
-          PRAGMA user_version = 1;
-          COMMIT;
-        `)
-      }
-      else if (version !== 1) throw new Error('Unsupported database version. The schema was not modified.')
+      migrateDatabase(this.database)
     }
     catch (error) {
       this.database.close()

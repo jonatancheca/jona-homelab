@@ -9,6 +9,32 @@ import { wakeDevice } from '../../server/core/service.ts'
 
 const input = { name: 'Server', mac: 'AA:BB:CC:DD:EE:FF' }
 
+function databaseVersion(database: DatabaseSync): number {
+  return database.prepare('PRAGMA user_version').get()!.user_version as number
+}
+
+function createVersionOneDatabase(path: string): void {
+  const database = new DatabaseSync(path)
+  database.exec(`
+    CREATE TABLE devices (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      mac TEXT NOT NULL UNIQUE,
+      createdAt TEXT NOT NULL,
+      updatedAt TEXT NOT NULL,
+      lastSentAt TEXT,
+      lastAttemptMs INTEGER
+    );
+    INSERT INTO devices VALUES (
+      'legacy', 'Legacy PC', 'AA:BB:CC:DD:EE:01',
+      '2026-01-01T00:00:00.000Z', '2026-01-02T00:00:00.000Z',
+      '2026-01-03T00:00:00.000Z', 1000
+    );
+    PRAGMA user_version = 1;
+  `)
+  database.close()
+}
+
 test('CRUD, SQL parameterization, uniqueness and missing devices', () => {
   const store = new DeviceStore(':memory:')
   try {
@@ -51,14 +77,100 @@ test('persists data and cooldown across connections and restarts', () => {
   finally { first?.close(); second?.close(); rmSync(directory, { recursive: true, force: true }) }
 })
 
-test('does not downgrade a database from a newer release', () => {
+test('creates the current schema for a new database', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'homelab-new-version-test-'))
+  const path = join(directory, 'new.sqlite')
+  try {
+    const store = new DeviceStore(path)
+    store.close()
+    const database = new DatabaseSync(path)
+    assert.equal(databaseVersion(database), 2)
+    assert.equal(
+      database.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?")
+        .get('idx_devices_name_nocase')!.name,
+      'idx_devices_name_nocase',
+    )
+    database.close()
+  }
+  finally { rmSync(directory, { recursive: true, force: true }) }
+})
+
+test('migrates version 1 to 2 without losing devices and is idempotent', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'homelab-migration-test-'))
+  const path = join(directory, 'legacy.sqlite')
+  let first: DeviceStore | undefined
+  let second: DeviceStore | undefined
+  try {
+    createVersionOneDatabase(path)
+    first = new DeviceStore(path)
+    assert.deepEqual(first.list(), [{
+      id: 'legacy',
+      name: 'Legacy PC',
+      mac: 'AA:BB:CC:DD:EE:01',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-02T00:00:00.000Z',
+      lastSentAt: '2026-01-03T00:00:00.000Z',
+    }])
+    assert.throws(() => first!.claimWake('legacy', 1001), { statusCode: 429, retryAfter: 5 })
+    first.close()
+    first = undefined
+
+    second = new DeviceStore(path)
+    assert.equal(second.list().length, 1)
+    second.close()
+    second = undefined
+
+    const database = new DatabaseSync(path)
+    assert.equal(databaseVersion(database), 2)
+    assert.equal(
+      database.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'index' AND name = ?")
+        .get('idx_devices_name_nocase')!.count,
+      1,
+    )
+    assert.equal(database.prepare('SELECT lastAttemptMs FROM devices WHERE id = ?').get('legacy')!.lastAttemptMs, 1000)
+    database.close()
+  }
+  finally { first?.close(); second?.close(); rmSync(directory, { recursive: true, force: true }) }
+})
+
+test('rolls back a failed migration and keeps its previous version', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'homelab-failed-migration-test-'))
+  const path = join(directory, 'invalid-v1.sqlite')
+  try {
+    const database = new DatabaseSync(path)
+    database.exec('PRAGMA user_version = 1')
+    database.close()
+
+    assert.throws(() => new DeviceStore(path), /no such table/)
+    const unchanged = new DatabaseSync(path)
+    assert.equal(databaseVersion(unchanged), 1)
+    assert.equal(
+      unchanged.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'index' AND name = ?")
+        .get('idx_devices_name_nocase')!.count,
+      0,
+    )
+    unchanged.close()
+  }
+  finally { rmSync(directory, { recursive: true, force: true }) }
+})
+
+test('does not modify a database from a newer release', () => {
   const directory = mkdtempSync(join(tmpdir(), 'homelab-version-test-'))
   try {
     const path = join(directory, 'newer.sqlite')
     const database = new DatabaseSync(path)
-    database.exec('PRAGMA user_version = 2')
+    database.exec(`
+      CREATE TABLE sentinel (value TEXT NOT NULL);
+      INSERT INTO sentinel VALUES ('preserved');
+      PRAGMA user_version = 3;
+    `)
     database.close()
     assert.throws(() => new DeviceStore(path), /Unsupported database version/)
+    const unchanged = new DatabaseSync(path)
+    assert.equal(databaseVersion(unchanged), 3)
+    assert.equal(unchanged.prepare('SELECT value FROM sentinel').get()!.value, 'preserved')
+    assert.equal(unchanged.prepare('PRAGMA journal_mode').get()!.journal_mode, 'delete')
+    unchanged.close()
   }
   finally { rmSync(directory, { recursive: true, force: true }) }
 })

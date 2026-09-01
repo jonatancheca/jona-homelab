@@ -47,10 +47,9 @@ case "${1-}" in
     ;;
   start)
     printf 'active\n' > "$JONA_TEST_SERVICE_STATE"
-    if [[ "$JONA_TEST_HEALTH_MODE" == 'rollback' \
-      && -f "$JONA_TEST_CURRENT/RELEASE_VERSION" \
+    if [[ -f "$JONA_TEST_CURRENT/RELEASE_VERSION" \
       && "$(cat "$JONA_TEST_CURRENT/RELEASE_VERSION")" == "$JONA_TEST_LATEST_VERSION" ]]; then
-      printf 'migrated\n' > "$JONA_TEST_DATA/database.sqlite"
+      printf 'migrated\n' >> "$JONA_TEST_DATA/database.sqlite"
     fi
     ;;
   *) exit 2 ;;
@@ -167,7 +166,7 @@ success_fixture=$(create_fixture success "$old_version" "$success_version")
 run_updater "$success_fixture" "$success_version" success >/dev/null
 [[ "$(readlink -f "$success_fixture/install/current")" == "$success_fixture/install/releases/$success_version" ]] \
   || fail_test 'Actualización correcta no activó release nueva.'
-assert_file_value "$success_fixture/data/database.sqlite" original
+assert_file_value "$success_fixture/data/database.sqlite" $'original\nmigrated'
 [[ $(find "$success_fixture/backups" -maxdepth 1 -name '*.tar.gz' | wc -l) -eq 1 ]] \
   || fail_test 'Actualización correcta no conservó exactamente un backup.'
 
@@ -180,6 +179,6 @@ fi
   || fail_test 'Rollback no restauró release anterior.'
 assert_file_value "$rollback_fixture/data/database.sqlite" original
 failed_database=$(find "$rollback_fixture/backups" -path '*/failed-data-*/database.sqlite' -print -quit)
-assert_file_value "$failed_database" migrated
+assert_file_value "$failed_database" $'original\nmigrated'
 
 printf 'Updater: 5 escenarios correctos.\n'

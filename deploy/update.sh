@@ -394,6 +394,7 @@ main() {
   switch_current_link "$NEW_RELEASE"
   LINK_SWITCHED=1
   NEW_SERVICE_ATTEMPTED=1
+  printf 'Arrancando nueva versión y aplicando migraciones de base de datos...\n'
   systemctl start "$SERVICE"
   wait_for_health || fail "Nueva versión no respondió correctamente en $HEALTH_URL"
 

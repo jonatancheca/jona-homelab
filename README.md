@@ -83,6 +83,8 @@ printf '%s\n' "$version" | grep -Eq '^main-[0-9a-f]{12}$'
 
 Después prepara instalación inicial. Si usuario o directorios ya existen, no los vuelvas a crear ni reemplaces configuración existente.
 
+Si la aplicación ya está instalada, **no repitas esta instalación inicial ni borres lo existente**. Ve directamente a [Actualizaciones y rollback](#actualizaciones-y-rollback): el actualizador conserva base de datos, configuración, backups y releases anteriores.
+
 ```sh
 id -u jona-homelab >/dev/null 2>&1 || sudo useradd --system --user-group --home-dir /var/lib/jona-homelab --no-create-home --shell /usr/sbin/nologin jona-homelab
 sudo install -d -m 0755 /opt/jona-homelab/releases
@@ -136,7 +138,9 @@ Ejecuta actualizador incluido en release activa:
 sudo /opt/jona-homelab/current/update.sh
 ```
 
-El script consulta latest release y termina sin detener servicio cuando `RELEASE_VERSION` ya coincide. Si hay versión nueva, descarga paquete en staging, valida checksum, rutas, enlaces y contenido, y solo entonces detiene servicio. Con servicio parado crea un backup completo de `/var/lib/jona-homelab`, instala release bajo `/opt/jona-homelab/releases/`, cambia enlace `current` atómicamente, arranca y espera hasta 60 segundos a que `/api/health` responda `{"status":"ok"}`.
+El script consulta latest release y termina sin detener servicio cuando `RELEASE_VERSION` ya coincide. Si hay versión nueva, descarga paquete en staging, valida checksum, rutas, enlaces y contenido, y solo entonces detiene servicio. Con servicio parado crea un backup completo de `/var/lib/jona-homelab`, instala release bajo `/opt/jona-homelab/releases/`, cambia enlace `current` atómicamente y arranca la nueva versión. Durante ese arranque, la aplicación aplica en orden las migraciones SQLite pendientes dentro de transacciones. Después espera hasta 60 segundos a que `/api/health` responda `{"status":"ok"}`; esa respuesta confirma que inicialización y migraciones terminaron correctamente.
+
+Actualizar no requiere eliminar ni recrear la instalación. El script no borra la base de datos ni `/etc/jona-homelab.env`, y conserva tanto el backup previo como las releases anteriores.
 
 Consulta parámetros para instalaciones no estándar con `sudo /opt/jona-homelab/current/update.sh --help`. `--install-root`, `--data-root`, `--backup-root`, `--service`, `--health-url` y `--release-api` permiten cambiar valores predeterminados. `health-url` solo admite loopback. `/etc/jona-homelab.env`, unidad systemd, releases anteriores y backups nunca se sobrescriben ni eliminan automáticamente.
 
