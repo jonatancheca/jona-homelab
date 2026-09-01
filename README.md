@@ -56,24 +56,43 @@ En el equipo de compilación, instala con el lockfile y ejecuta las validaciones
 ```sh
 pnpm install --frozen-lockfile
 pnpm build
-tar -czf jona-homelab.tar.gz -C .output .
+mkdir -p artifacts
+tar -czf artifacts/jona-homelab.tar.gz -C .output .
 ```
 
-Transfiere el archivo y los dos archivos de `deploy/` a Ubuntu. Solo el contenido compilado de `.output` se instala en `/opt`: no hacen falta fuentes, pnpm ni herramientas de compilación en producción.
+Cada commit que llega a `main` genera además una release oficial `main-<sha>` desde GitHub Actions. La release contiene:
+
+- `jona-homelab.tar.gz`: runtime de `.output`, `RELEASE_VERSION`, actualizador, README y archivos de despliegue.
+- `jona-homelab.tar.gz.sha256`: checksum obligatorio del paquete.
+- `update.sh`: copia independiente para incorporar el actualizador a instalaciones antiguas.
+
+La release se compila en Linux y no incluye Node. No hacen falta fuentes, pnpm ni herramientas de compilación en producción.
 
 ### 2. Usuario, archivos y configuración
 
-Ejecuta estos comandos en Ubuntu, desde la carpeta con el archivo transferido. Usa un nombre de versión **nuevo** en cada instalación; `v1` es el ejemplo inicial.
+Descarga y verifica la última release directamente en Ubuntu:
 
 ```sh
-sudo useradd --system --user-group --home-dir /var/lib/jona-homelab --no-create-home --shell /usr/sbin/nologin jona-homelab
+release_url=https://github.com/jonatancheca/jona-homelab/releases/latest/download
+curl --fail --location --remote-name "$release_url/jona-homelab.tar.gz"
+curl --fail --location --remote-name "$release_url/jona-homelab.tar.gz.sha256"
+sha256sum --check jona-homelab.tar.gz.sha256
+version="$(tar -xOf jona-homelab.tar.gz ./RELEASE_VERSION | tr -d '\r\n')"
+printf '%s\n' "$version" | grep -Eq '^main-[0-9a-f]{12}$'
+```
+
+Después prepara instalación inicial. Si usuario o directorios ya existen, no los vuelvas a crear ni reemplaces configuración existente.
+
+```sh
+id -u jona-homelab >/dev/null 2>&1 || sudo useradd --system --user-group --home-dir /var/lib/jona-homelab --no-create-home --shell /usr/sbin/nologin jona-homelab
 sudo install -d -m 0755 /opt/jona-homelab/releases
-sudo mkdir /opt/jona-homelab/releases/v1
-sudo tar -xzf jona-homelab.tar.gz -C /opt/jona-homelab/releases/v1 --no-same-owner
-sudo chmod -R a+rX /opt/jona-homelab/releases/v1
-sudo ln -s /opt/jona-homelab/releases/v1 /opt/jona-homelab/current
-sudo install -m 0600 deploy/homelab.env.example /etc/jona-homelab.env
-sudo install -m 0644 deploy/jona-homelab.service /etc/systemd/system/jona-homelab.service
+sudo install -d -m 0755 "/opt/jona-homelab/releases/$version"
+sudo tar -xzf jona-homelab.tar.gz -C "/opt/jona-homelab/releases/$version" --no-same-owner --no-same-permissions
+sudo chmod -R a+rX "/opt/jona-homelab/releases/$version"
+sudo chmod 0755 "/opt/jona-homelab/releases/$version/update.sh"
+sudo ln -s "/opt/jona-homelab/releases/$version" /opt/jona-homelab/current
+sudo install -m 0600 /opt/jona-homelab/current/deploy/homelab.env.example /etc/jona-homelab.env
+sudo install -m 0644 /opt/jona-homelab/current/deploy/jona-homelab.service /etc/systemd/system/jona-homelab.service
 sudoedit /etc/jona-homelab.env
 ```
 
@@ -111,9 +130,27 @@ El servicio funciona sin root, sin capacidades especiales y con el sistema de ar
 
 ## Actualizaciones y rollback
 
-Compila una nueva versión, extrae el artefacto en un directorio nuevo bajo `/opt/jona-homelab/releases/` y ajusta sus permisos como en la instalación inicial. Detén el servicio, crea una copia de seguridad, cambia el enlace `current` con `sudo ln -sfn /opt/jona-homelab/releases/v2 /opt/jona-homelab/current` y vuelve a iniciarlo. Verifica salud y Access. La SQLite y `/etc/jona-homelab.env` permanecen intactos.
+Ejecuta actualizador incluido en release activa:
 
-Para volver atrás, detén el servicio y apunta `current` a la versión anterior. No elimines versiones ni datos automáticamente. Si una futura versión cambia el esquema, no ejecutes una versión antigua sobre ese esquema: restaura también su copia compatible. Esta versión rechaza esquemas desconocidos y no los degrada.
+```sh
+sudo /opt/jona-homelab/current/update.sh
+```
+
+El script consulta latest release y termina sin detener servicio cuando `RELEASE_VERSION` ya coincide. Si hay versión nueva, descarga paquete en staging, valida checksum, rutas, enlaces y contenido, y solo entonces detiene servicio. Con servicio parado crea un backup completo de `/var/lib/jona-homelab`, instala release bajo `/opt/jona-homelab/releases/`, cambia enlace `current` atómicamente, arranca y espera hasta 60 segundos a que `/api/health` responda `{"status":"ok"}`.
+
+Consulta parámetros para instalaciones no estándar con `sudo /opt/jona-homelab/current/update.sh --help`. `--install-root`, `--data-root`, `--backup-root`, `--service`, `--health-url` y `--release-api` permiten cambiar valores predeterminados. `health-url` solo admite loopback. `/etc/jona-homelab.env`, unidad systemd, releases anteriores y backups nunca se sobrescriben ni eliminan automáticamente.
+
+Una instalación anterior sin actualizador puede incorporarlo una vez así:
+
+```sh
+curl --fail --location --remote-name https://github.com/jonatancheca/jona-homelab/releases/latest/download/update.sh
+chmod 0755 update.sh
+sudo ./update.sh
+```
+
+Si nueva versión no arranca o no supera health check, actualizador detiene intento, conserva datos fallidos bajo `/var/backups/jona-homelab/failed-data-*`, restaura backup de SQLite y enlace anterior, y comprueba de nuevo servicio antiguo. El comando devuelve error aunque rollback termine correctamente, para que fallo original sea visible.
+
+Para rollback manual, detén servicio, aparta primero directorio de datos actual completo, restaura backup compatible, apunta `current` a release anterior y arranca. No ejecutes versión antigua sobre esquema nuevo. Esta versión rechaza esquemas desconocidos y no los degrada.
 
 ## Copia y restauración
 

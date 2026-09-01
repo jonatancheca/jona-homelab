@@ -1,0 +1,116 @@
+name: Release app
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      - name: Prepare version
+        shell: bash
+        run: |
+          version="main-${GITHUB_SHA::12}"
+          echo "APP_VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate source
+        run: |
+          pnpm lint
+          pnpm typecheck
+          pnpm test
+
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run browser tests
+        run: pnpm test:e2e
+
+      - name: Build
+        run: pnpm build
+
+      - name: Validate production build
+        run: pnpm test:production
+
+      - name: Validate updater
+        shell: bash
+        run: |
+          bash -n deploy/update.sh
+          sudo bash tests/release-update.test.sh
+
+      - name: Package release
+        shell: bash
+        run: |
+          package_root='artifacts/package'
+          mkdir -p "$package_root/deploy"
+          cp -a .output/. "$package_root/"
+          install -m 0755 deploy/update.sh "$package_root/update.sh"
+          install -m 0644 README.md "$package_root/README.md"
+          install -m 0644 deploy/homelab.env.example "$package_root/deploy/homelab.env.example"
+          install -m 0644 deploy/jona-homelab.service "$package_root/deploy/jona-homelab.service"
+          printf '%s\n' "$APP_VERSION" > "$package_root/RELEASE_VERSION"
+
+          tar -czf artifacts/jona-homelab.tar.gz --directory "$package_root" .
+          (cd artifacts && sha256sum jona-homelab.tar.gz > jona-homelab.tar.gz.sha256)
+          install -m 0755 deploy/update.sh artifacts/update.sh
+
+          tar -tzf artifacts/jona-homelab.tar.gz | sed 's#^\./##' > artifacts/manifest.txt
+          for required in \
+            RELEASE_VERSION \
+            server/index.mjs \
+            update.sh \
+            README.md \
+            deploy/homelab.env.example \
+            deploy/jona-homelab.service
+          do
+            grep -Fxq "$required" artifacts/manifest.txt
+          done
+          (cd artifacts && sha256sum --check jona-homelab.tar.gz.sha256)
+
+      - name: Publish release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          assets=(
+            artifacts/jona-homelab.tar.gz
+            artifacts/jona-homelab.tar.gz.sha256
+            artifacts/update.sh
+          )
+          if gh release view "$APP_VERSION" >/dev/null 2>&1; then
+            gh release upload "$APP_VERSION" "${assets[@]}" --clobber
+            gh release edit "$APP_VERSION" \
+              --title "Jona Homelab $APP_VERSION" \
+              --latest
+          else
+            gh release create "$APP_VERSION" "${assets[@]}" \
+              --target "$GITHUB_SHA" \
+              --title "Jona Homelab $APP_VERSION" \
+              --generate-notes \
+              --latest
+          fi
