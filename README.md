@@ -104,18 +104,7 @@ Si el usuario ya existe, no vuelvas a crearlo. Los comandos de instalación de c
 
 `WOL_BROADCAST` vale `255.255.255.255` por defecto. Si el servidor tiene varias interfaces, establece el broadcast correcto de la subred y `WOL_SOURCE_IP` con la IP IPv4 local de la interfaz LAN; puedes consultarlos con `ip -4 addr`. No pongas `eth0` en esa variable. `WOL_PORT` vale `9`. No abras ni reenvíes ese puerto desde Internet.
 
-### 3. Cloudflare Access y Tunnel
-
-La configuración es manual: este proyecto no crea ni modifica recursos de tu cuenta.
-
-1. Crea una aplicación Access **Self-hosted / public hostname** para el dominio completo elegido, incluyendo todas sus rutas. Crea una política **Allow** con los correos concretos autorizados, mediante tu proveedor de identidad o código de un solo uso. No uses `Everyone` ni políticas `Bypass`. Todos los usuarios permitidos podrán gestionar todos los equipos.
-2. Sigue la [instalación oficial de Cloudflare Tunnel](https://developers.cloudflare.com/tunnel/setup/) para instalar `cloudflared` como servicio en ese mismo Ubuntu y crear un Tunnel gestionado remotamente. Trata el token del Tunnel como secreto; no lo guardes en Git, capturas o logs.
-3. Publica el hostname elegido con origen **`http://127.0.0.1:3000`**. No necesitas abrir puertos entrantes del router, certificados locales ni un cliente VPN en el navegador.
-4. Conserva Access protegiendo todas las rutas. La aplicación no valida el JWT de Access: confía en la autenticación aplicada por Cloudflare. Mantén el servicio limitado a loopback y no publiques el puerto 3000 directamente.
-
-Una política Access ausente sí dejaría accesible el origen del Tunnel, por lo que debes conservar Access protegiendo todas las rutas. `/api/health` solo devuelve `{"status":"ok"}` y también debe quedar protegido públicamente por Cloudflare.
-
-### 4. Arrancar y comprobar
+### 3. Arrancar y comprobar
 
 ```sh
 sudo systemctl daemon-reload
