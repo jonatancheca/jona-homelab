@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"runtime"
 	"time"
 	"unsafe"
 
@@ -49,13 +50,14 @@ func createPipe() (windows.Handle, error) {
 	if err != nil {
 		return windows.InvalidHandle, err
 	}
-	defer windows.LocalFree(windows.Handle(uintptr(unsafe.Pointer(securityDescriptor))))
+	// SecurityDescriptorFromString returns a self-relative descriptor owned by
+	// Go. Do not release it with LocalFree; that corrupts the Go heap.
 	security := &windows.SecurityAttributes{Length: uint32(unsafe.Sizeof(windows.SecurityAttributes{})), SecurityDescriptor: securityDescriptor}
 	name, err := windows.UTF16PtrFromString(pipeName)
 	if err != nil {
 		return windows.InvalidHandle, err
 	}
-	return windows.CreateNamedPipe(
+	handle, err := windows.CreateNamedPipe(
 		name,
 		windows.PIPE_ACCESS_DUPLEX,
 		windows.PIPE_TYPE_BYTE|windows.PIPE_READMODE_BYTE|windows.PIPE_WAIT,
@@ -65,6 +67,8 @@ func createPipe() (windows.Handle, error) {
 		0,
 		security,
 	)
+	runtime.KeepAlive(securityDescriptor)
+	return handle, err
 }
 
 func connectPipe(ctx context.Context, handle windows.Handle) bool {
