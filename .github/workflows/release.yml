@@ -151,6 +151,9 @@ jobs:
     needs: [linux, windows]
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
       - name: Download Linux artifacts
         uses: actions/download-artifact@v4
         with:
@@ -169,6 +172,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           version="main-${GITHUB_SHA::12}"
+          repository="$GITHUB_REPOSITORY"
           assets=(
             artifacts/jona-homelab.tar.gz
             artifacts/jona-homelab.tar.gz.sha256
@@ -176,9 +180,9 @@ jobs:
             artifacts/jona-homelab-companion-win-x64.zip
             artifacts/jona-homelab-companion-win-x64.zip.sha256
           )
-          if gh release view "$version" >/dev/null 2>&1; then
-            gh release upload "$version" "${assets[@]}" --clobber
-            gh release edit "$version" --title "Jona Homelab $version" --latest
+          if gh release view "$version" --repo "$repository" >/dev/null 2>&1; then
+            gh release upload "$version" "${assets[@]}" --repo "$repository" --clobber
+            gh release edit "$version" --repo "$repository" --title "Jona Homelab $version" --latest
           else
-            gh release create "$version" "${assets[@]}" --target "$GITHUB_SHA" --title "Jona Homelab $version" --generate-notes --latest
+            gh release create "$version" "${assets[@]}" --repo "$repository" --target "$GITHUB_SHA" --title "Jona Homelab $version" --generate-notes --latest
           fi
