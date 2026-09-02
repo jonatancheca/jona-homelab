@@ -41,8 +41,12 @@ New-Item -ItemType Directory -Force -Path $data | Out-Null
 & icacls.exe $data /inheritance:r /grant '*S-1-5-18:(OI)(CI)(F)' '*S-1-5-32-544:(OI)(CI)(F)' | Out-Null
 Get-NetFirewallRule -DisplayName 'Jona Homelab Companion' -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue
 New-NetFirewallRule -DisplayName 'Jona Homelab Companion' -Direction Inbound -Protocol TCP -LocalPort 47654 -Profile Private -RemoteAddress LocalSubnet -Action Allow | Out-Null
-& schtasks.exe /Create /TN 'JonaHomelabCompanionTray' /SC ONLOGON /RU INTERACTIVE /TR "`"$servicePath`" --tray" /F | Out-Null
+$trayTaskName = 'JonaHomelabCompanionTray'
+$trayAction = New-ScheduledTaskAction -Execute $servicePath -Argument '--tray'
+$trayTrigger = New-ScheduledTaskTrigger -AtLogOn
+$trayPrincipal = New-ScheduledTaskPrincipal -GroupId 'S-1-5-4' -RunLevel Limited
+Register-ScheduledTask -TaskName $trayTaskName -Action $trayAction -Trigger $trayTrigger -Principal $trayPrincipal -Force | Out-Null
 Start-Service -Name 'JonaHomelabCompanion'
-& schtasks.exe /Run /TN 'JonaHomelabCompanionTray' | Out-Null
+Start-ScheduledTask -TaskName $trayTaskName
 Write-Output "Installed Jona Homelab Companion $version"
 Write-Output 'Open the tray app and copy its pairing code into the homelab device editor.'
