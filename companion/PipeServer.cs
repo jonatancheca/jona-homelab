@@ -11,11 +11,13 @@ public sealed class PipeServer : BackgroundService
     public const string PipeName = "JonaHomelabCompanion";
     private readonly CompanionConfiguration configuration;
     private readonly UpdateCoordinator updates;
+    private readonly ILogger<PipeServer> logger;
 
-    public PipeServer(CompanionConfiguration configuration, UpdateCoordinator updates)
+    public PipeServer(CompanionConfiguration configuration, UpdateCoordinator updates, ILogger<PipeServer> logger)
     {
         this.configuration = configuration;
         this.updates = updates;
+        this.logger = logger;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -34,7 +36,11 @@ public sealed class PipeServer : BackgroundService
                 await writer.WriteLineAsync(response);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { }
-            catch { await Task.Delay(500, stoppingToken); }
+            catch (Exception error)
+            {
+                logger.LogWarning(error, "Named pipe request failed.");
+                await Task.Delay(500, stoppingToken);
+            }
         }
     }
 
@@ -58,7 +64,10 @@ public sealed class PipeServer : BackgroundService
     private static NamedPipeServerStream CreatePipe()
     {
         var security = new PipeSecurity();
-        security.AddAccessRule(new PipeAccessRule(new SecurityIdentifier(WellKnownSidType.BuiltinUsersSid, null), PipeAccessRights.ReadWrite, AccessControlType.Allow));
+        security.AddAccessRule(new PipeAccessRule(
+            new SecurityIdentifier(WellKnownSidType.BuiltinUsersSid, null),
+            PipeAccessRights.ReadWrite | PipeAccessRights.CreateNewInstance,
+            AccessControlType.Allow));
         return NamedPipeServerStreamAcl.Create(PipeName, PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous, 4096, 4096, security);
     }
 }

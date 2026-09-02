@@ -71,17 +71,38 @@ public static class TrayApplication
             StartPosition = FormStartPosition.CenterScreen;
             var copy = new Button { Text = "Copy pairing code", AutoSize = true };
             var rotate = new Button { Text = "Rotate code", AutoSize = true };
-            copy.Click += async (_, _) => { var info = await PipeClient.CallAsync("get-info"); Clipboard.SetText(info.GetProperty("pairingCode").GetString() ?? string.Empty); MessageBox.Show("Pairing code copied.", Text); };
-            rotate.Click += async (_, _) =>
-            {
-                if (MessageBox.Show("The old code stops working immediately. Continue?", Text, MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
-                var info = await PipeClient.CallAsync("rotate"); Clipboard.SetText(info.GetProperty("pairingCode").GetString() ?? string.Empty); await RefreshInfo();
-            };
+            copy.Click += async (_, _) => await CopyPairingCode();
+            rotate.Click += async (_, _) => await RotatePairingCode();
             var buttons = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 48, Padding = new Padding(10), FlowDirection = FlowDirection.RightToLeft };
             buttons.Controls.Add(rotate); buttons.Controls.Add(copy);
             Controls.Add(details); Controls.Add(buttons);
             Shown += async (_, _) => await RefreshInfo();
         }
+
+        private async Task CopyPairingCode()
+        {
+            try
+            {
+                var info = await PipeClient.CallAsync("get-info");
+                Clipboard.SetText(info.GetProperty("pairingCode").GetString() ?? string.Empty);
+                MessageBox.Show("Pairing code copied.", Text);
+            }
+            catch (Exception error) { ShowError(error); }
+        }
+
+        private async Task RotatePairingCode()
+        {
+            try
+            {
+                if (MessageBox.Show("The old code stops working immediately. Continue?", Text, MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
+                var info = await PipeClient.CallAsync("rotate");
+                Clipboard.SetText(info.GetProperty("pairingCode").GetString() ?? string.Empty);
+                await RefreshInfo();
+            }
+            catch (Exception error) { ShowError(error); }
+        }
+
+        private void ShowError(Exception error) => MessageBox.Show(error.Message, Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
 
         private async Task RefreshInfo()
         {
@@ -114,6 +135,22 @@ public static class TrayApplication
     private static class PipeClient
     {
         public static async Task<JsonElement> CallAsync(string action)
+        {
+            Exception? lastError = null;
+            for (var attempt = 0; attempt < 3; attempt++)
+            {
+                try { return await CallOnceAsync(action); }
+                catch (Exception error) when (error is IOException or TimeoutException or UnauthorizedAccessException)
+                {
+                    lastError = error;
+                    if (attempt < 2) await Task.Delay(500);
+                }
+            }
+
+            throw new InvalidOperationException("Companion service unavailable. Ensure JonaHomelabCompanion is running.", lastError);
+        }
+
+        private static async Task<JsonElement> CallOnceAsync(string action)
         {
             using var pipe = new NamedPipeClientStream(".", PipeServer.PipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
             await pipe.ConnectAsync(3000);

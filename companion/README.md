@@ -13,6 +13,8 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 The installer creates the automatic `JonaHomelabCompanion` service, a tray task, a Private-profile firewall rule for TCP 47654 and protected state under `C:\ProgramData\JonaHomelabCompanion`. The service runs without an interactive login and the tray shows its status.
 
+The tray starts at user logon. Restarting the service does not reopen a tray process that was closed; start it again with `Start-ScheduledTask -TaskName JonaHomelabCompanionTray` or sign in again.
+
 Open the tray, copy the `jhcp1_...` pairing code, then edit the device in Jona Homelab and select `Companion`. Paste the code and save. The code is never returned by the homelab API.
 
 ## Updates
