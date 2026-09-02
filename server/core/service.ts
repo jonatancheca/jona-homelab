@@ -1,4 +1,4 @@
-import type { WakeResult } from '../../shared/types/device.ts'
+import type { Device, ShutdownResult, WakeResult } from '../../shared/types/device.ts'
 import type { DeviceStore } from './database.ts'
 import { AppError } from './errors.ts'
 
@@ -16,4 +16,19 @@ export async function wakeDevice(store: DeviceStore, id: string, send: (mac: str
     if (error instanceof AppError) throw error
     throw new AppError(500, 'Packet sent, but the timestamp could not be saved. Check storage.')
   }
+}
+
+export async function shutdownDevice(
+  store: DeviceStore,
+  id: string,
+  force: boolean,
+  send: (device: Device, force: boolean) => Promise<void>,
+): Promise<ShutdownResult> {
+  const target = store.claimShutdown(id)
+  try { await send(target, force) }
+  catch (error) {
+    if (error instanceof AppError) throw error
+    throw new AppError(502, 'The shutdown command was not accepted. Check device status and SSH configuration.', 10)
+  }
+  return { message: 'Shutdown command accepted', retryAfter: 10 }
 }

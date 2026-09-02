@@ -22,12 +22,21 @@ test('validates runtime and network settings', () => {
   for (const changes of [
     { NITRO_HOST: '0.0.0.0' }, { WOL_BROADCAST: 'localhost' }, { WOL_SOURCE_IP: 'eth0' },
     { WOL_PORT: '0' }, { WOL_PORT: '65536' }, { WOL_PORT: '1.5' }, { DB_PATH: 'relative.sqlite' },
+    { SSH_IDENTITY_FILE: resolve('key') }, { SSH_KNOWN_HOSTS_FILE: resolve('known_hosts') },
+    { SSH_IDENTITY_FILE: 'relative-key', SSH_KNOWN_HOSTS_FILE: resolve('known_hosts') },
+    { SSH_IDENTITY_FILE: resolve('key'), SSH_KNOWN_HOSTS_FILE: resolve('known_hosts'), SSH_PORT: '0' },
   ]) assert.throws(() => readSettings({ ...production, ...changes }))
+  assert.deepEqual(readSettings({
+    ...production,
+    SSH_IDENTITY_FILE: resolve('key'),
+    SSH_KNOWN_HOSTS_FILE: resolve('known_hosts'),
+  }).ssh, { identityFile: resolve('key'), knownHostsFile: resolve('known_hosts'), port: 22 })
 })
 
 test('development uses local defaults', () => {
   const settings = readSettings({ NODE_ENV: 'development' }, true)
   assert.equal(settings.databasePath, './data/homelab.sqlite')
+  assert.equal(settings.ssh, null)
 })
 
 test('mutation payloads must use JSON', () => {

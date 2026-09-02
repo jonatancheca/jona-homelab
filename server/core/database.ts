@@ -6,6 +6,7 @@ import type { Device, DeviceInput } from '../../shared/types/device.ts'
 import { AppError } from './errors.ts'
 
 export const WAKE_COOLDOWN_MS = 5000
+export const SHUTDOWN_COOLDOWN_MS = 10000
 
 const DATABASE_MIGRATIONS = [
   {
@@ -26,16 +27,34 @@ const DATABASE_MIGRATIONS = [
     version: 2,
     sql: 'CREATE INDEX idx_devices_name_nocase ON devices(name COLLATE NOCASE, id);',
   },
+  {
+    version: 3,
+    sql: `
+      ALTER TABLE devices ADD COLUMN address TEXT;
+      ALTER TABLE devices ADD COLUMN sshUser TEXT;
+      ALTER TABLE devices ADD COLUMN lastShutdownAttemptMs INTEGER;
+    `,
+  },
 ] as const
 
 const CURRENT_DATABASE_VERSION = DATABASE_MIGRATIONS.length
 
 interface DeviceRow extends Device {
   lastAttemptMs: number | null
+  lastShutdownAttemptMs: number | null
 }
 
 function publicDevice(row: DeviceRow): Device {
-  return { id: row.id, name: row.name, mac: row.mac, createdAt: row.createdAt, updatedAt: row.updatedAt, lastSentAt: row.lastSentAt }
+  return {
+    id: row.id,
+    name: row.name,
+    mac: row.mac,
+    address: row.address,
+    sshUser: row.sshUser,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    lastSentAt: row.lastSentAt,
+  }
 }
 
 function readDatabaseVersion(database: DatabaseSync): number {
@@ -107,8 +126,8 @@ export class DeviceStore {
     const id = randomUUID()
     const timestamp = new Date(now).toISOString()
     try {
-      this.database.prepare('INSERT INTO devices (id, name, mac, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?)')
-        .run(id, input.name, input.mac, timestamp, timestamp)
+      this.database.prepare('INSERT INTO devices (id, name, mac, address, sshUser, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?)')
+        .run(id, input.name, input.mac, input.address, input.sshUser, timestamp, timestamp)
     }
     catch (error) { this.handleWriteError(error) }
     return this.get(id)
@@ -119,8 +138,9 @@ export class DeviceStore {
     try {
       this.database.prepare(`UPDATE devices SET name = ?,
         lastSentAt = CASE WHEN mac = ? THEN lastSentAt ELSE NULL END,
-        mac = ?, updatedAt = ? WHERE id = ?`)
-        .run(input.name, input.mac, input.mac, new Date(now).toISOString(), id)
+        lastShutdownAttemptMs = CASE WHEN address = ? AND sshUser = ? THEN lastShutdownAttemptMs ELSE NULL END,
+        mac = ?, address = ?, sshUser = ?, updatedAt = ? WHERE id = ?`)
+        .run(input.name, input.mac, input.address, input.sshUser, input.mac, input.address, input.sshUser, new Date(now).toISOString(), id)
     }
     catch (error) { this.handleWriteError(error) }
     return this.get(id)
@@ -151,6 +171,19 @@ export class DeviceStore {
       throw new AppError(409, 'Packet sent, but the device changed during sending. Refresh the list.')
     }
     return this.get(id)
+  }
+
+  claimShutdown(id: string, now = Date.now()): Device {
+    const row = this.row(id)
+    if (!row.address || !row.sshUser) throw new AppError(409, 'Configure the device IPv4 address and SSH user first.')
+    const result = this.database.prepare(`UPDATE devices SET lastShutdownAttemptMs = ?
+      WHERE id = ? AND (lastShutdownAttemptMs IS NULL OR lastShutdownAttemptMs <= ?)`)
+      .run(now, id, now - SHUTDOWN_COOLDOWN_MS)
+    if (!result.changes) {
+      const retryAfter = Math.max(1, Math.ceil(((row.lastShutdownAttemptMs ?? now) + SHUTDOWN_COOLDOWN_MS - now) / 1000))
+      throw new AppError(429, `Wait ${retryAfter} seconds before trying shutdown again.`, retryAfter)
+    }
+    return publicDevice(row)
   }
 
   close(): void { this.database.close() }
