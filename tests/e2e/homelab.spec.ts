@@ -8,6 +8,8 @@ test('shows focused device workspace without promotional navigation', async ({ p
 
   await page.goto('/')
   await expect(page.getByRole('heading', { name: 'My devices', exact: true })).toBeVisible()
+  await expect(page.locator('.sidebar')).toHaveCount(0)
+  await expect(page.getByText('No agents. No installation on the target device.', { exact: true })).toHaveCount(0)
   await expect(page.getByText('MY SPACE', { exact: true })).toHaveCount(0)
   await expect(page.getByRole('link', { name: 'Devices', exact: true })).toHaveCount(0)
   await expect(page.getByText('My space', { exact: true })).toHaveCount(0)

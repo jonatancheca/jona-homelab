@@ -125,13 +125,6 @@ onUnmounted(() => { clearInterval(timer); clearTimeout(toastTimer) })
 <template>
   <div class="shell">
     <a class="skip-link" href="#main">Skip to content</a>
-    <aside class="sidebar" aria-label="Main navigation">
-      <a class="brand" href="/" aria-label="Jona Homelab, home">
-        <span class="brand-symbol"><AppIcon name="server" /></span>
-        <span>jona<span class="brand-light"> / homelab</span></span>
-      </a>
-    </aside>
-
     <div class="workspace">
       <header class="topbar">
         <span v-if="mode" class="access-badge"><AppIcon name="shield" />{{ mode === 'access' ? 'Cloudflare Access' : 'Local development' }}</span>
@@ -148,7 +141,7 @@ onUnmounted(() => { clearInterval(timer); clearTimeout(toastTimer) })
 
           <div v-if="loadError" class="empty-state error-state" role="alert"><AppIcon name="info" /><h3>We couldn't load your devices</h3><p>{{ loadError }}</p><button class="button secondary" @click="loadDevices()"><AppIcon name="refresh" /> Retry</button></div>
           <div v-else-if="loading" class="empty-state" role="status"><span class="spinner"></span><p>Loading devices…</p></div>
-          <div v-else-if="!devices.length" class="empty-state"><div class="empty-illustration"><AppIcon name="server" /><span><AppIcon name="plus" /></span></div><h3>Your first device starts here</h3><p>Add a name and its MAC address.<br />We'll handle the packet.</p><button class="button secondary" @click="openForm()"><AppIcon name="plus" /> Register my first device</button><span class="empty-note">No agents. No installation on the target device.</span></div>
+          <div v-else-if="!devices.length" class="empty-state"><div class="empty-illustration"><AppIcon name="server" /><span><AppIcon name="plus" /></span></div><h3>Your first device starts here</h3><p>Add a name and its MAC address.<br />We'll handle the packet.</p><button class="button secondary" @click="openForm()"><AppIcon name="plus" /> Register my first device</button></div>
           <div v-else-if="!filtered.length" class="empty-state compact"><AppIcon name="search" /><h3>No matches</h3><p>Try another name or MAC address.</p><button class="button secondary" @click="search = ''">Clear search</button></div>
           <div v-else class="device-grid">
             <article v-for="device in filtered" :key="device.id" class="device-card" :aria-label="device.name">
