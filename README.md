@@ -133,7 +133,7 @@ Descarga `jona-homelab-companion-win-x64.zip` y su `.sha256` desde la misma rele
 
 Abre la bandeja, copia el código `jhcp1_...` y edita el equipo en el panel: selecciona `Companion`, pega el código y guarda. El código no aparece en `GET /api/devices`; para cambiarlo, rota el código en la bandeja y vuelve a pegarlo. La API firma solicitudes y respuestas con HMAC, rechaza nonces repetidos y solo acepta clientes IPv4 privados.
 
-El servicio comprueba releases al arrancar y cada 24 horas. Descarga el ZIP por HTTPS, valida checksum y hace rollback automático si la versión nueva no supera `/health`. Desinstala con `uninstall.ps1`; la configuración queda preservada salvo usar `-PurgeData`. El paquete no tiene firma Authenticode y SmartScreen puede mostrar un aviso.
+El servicio Go comprueba releases al arrancar y cada 24 horas. Descarga el ZIP por HTTPS, valida versión, checksum, rutas y archivos requeridos, y hace rollback automático si la versión nueva no supera `/health`. La bandeja muestra el código de emparejado y la última llamada autenticada del servidor; usa `Start-ScheduledTask -TaskName JonaHomelabCompanionTray` para relanzarla sin dejar una consola abierta. Desinstala con `uninstall.ps1`; la configuración queda preservada salvo usar `-PurgeData`. El paquete no tiene firma Authenticode y SmartScreen puede mostrar un aviso.
 
 ### Alternativa SSH
 

@@ -108,20 +108,28 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Set up .NET
-        uses: actions/setup-dotnet@v4
+      - name: Set up Go
+        uses: actions/setup-go@v6
         with:
-          dotnet-version: 10.x
+          go-version: '1.24.x'
+          cache-dependency-path: companion/go.sum
 
       - name: Test companion
-        run: dotnet test companion/JonaHomelab.Companion.sln --configuration Release
+        working-directory: companion
+        run: go test -count=1 ./...
 
       - name: Publish companion
         shell: pwsh
         run: |
           $version = "main-$($env:GITHUB_SHA.Substring(0, 12))"
           $packageRoot = Join-Path $env:GITHUB_WORKSPACE 'artifacts\companion-package'
-          dotnet publish companion/JonaHomelab.Companion.csproj --configuration Release --runtime win-x64 --self-contained true --output $packageRoot
+          New-Item -ItemType Directory -Force -Path $packageRoot | Out-Null
+          $env:CGO_ENABLED = '0'
+          $env:GOOS = 'windows'
+          $env:GOARCH = 'amd64'
+          Push-Location companion
+          go build -trimpath -ldflags '-s -w -H=windowsgui' -o (Join-Path $packageRoot 'JonaHomelab.Companion.exe') .
+          Pop-Location
           Copy-Item companion/install.ps1, companion/uninstall.ps1, companion/README.md -Destination $packageRoot
           Set-Content -LiteralPath (Join-Path $packageRoot 'RELEASE_VERSION') -Value $version -NoNewline
           foreach ($required in @('JonaHomelab.Companion.exe', 'install.ps1', 'uninstall.ps1', 'README.md', 'RELEASE_VERSION')) {

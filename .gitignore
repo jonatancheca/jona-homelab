@@ -15,3 +15,5 @@ artifacts/
 *.log
 **/bin/
 **/obj/
+companion/*.exe
+companion/*.zip

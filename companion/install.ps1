@@ -17,6 +17,9 @@ if ($version -notmatch '^main-[0-9a-f]{12}$') { throw 'Invalid RELEASE_VERSION.'
 $releases = Join-Path $InstallRoot 'releases'
 $target = Join-Path $releases $version
 $current = Join-Path $InstallRoot 'current'
+Stop-ScheduledTask -TaskName 'JonaHomelabCompanionTray' -ErrorAction SilentlyContinue
+Stop-Service -Name 'JonaHomelabCompanion' -Force -ErrorAction SilentlyContinue
+Get-Process -Name 'JonaHomelab.Companion' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $releases | Out-Null
 if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $target | Out-Null

@@ -10,6 +10,7 @@ param(
 $ErrorActionPreference = 'Stop'
 Stop-Service -Name 'JonaHomelabCompanion' -Force -ErrorAction SilentlyContinue
 & sc.exe delete JonaHomelabCompanion | Out-Null
+Get-Process -Name 'JonaHomelab.Companion' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 & schtasks.exe /Delete /TN 'JonaHomelabCompanionTray' /F | Out-Null
 Get-NetFirewallRule -DisplayName 'Jona Homelab Companion' -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue
 if (Test-Path -LiteralPath $InstallRoot) { Remove-Item -LiteralPath $InstallRoot -Recurse -Force }
