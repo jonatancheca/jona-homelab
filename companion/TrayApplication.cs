@@ -154,8 +154,8 @@ public static class TrayApplication
         {
             using var pipe = new NamedPipeClientStream(".", PipeServer.PipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
             await pipe.ConnectAsync(3000);
-            using var writer = new StreamWriter(pipe) { AutoFlush = true };
             using var reader = new StreamReader(pipe);
+            using var writer = new StreamWriter(pipe) { AutoFlush = true };
             await writer.WriteLineAsync(JsonSerializer.Serialize(new { action }));
             using var document = JsonDocument.Parse(await reader.ReadLineAsync() ?? throw new IOException("Companion returned no response."));
             if (document.RootElement.TryGetProperty("error", out var error)) throw new InvalidOperationException(error.GetString());
