@@ -3,7 +3,7 @@
 
 [CmdletBinding()]
 param(
-  [string]$InstallRoot = (Join-Path ${env:ProgramFiles} 'Jona Homelab Companion')
+  [string]$InstallRoot = (Join-Path ${env:ProgramFiles} 'JonaHomelabCompanion')
 )
 
 $ErrorActionPreference = 'Stop'
