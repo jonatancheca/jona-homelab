@@ -13,3 +13,5 @@ playwright-report/
 coverage/
 artifacts/
 *.log
+**/bin/
+**/obj/

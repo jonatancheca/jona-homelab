@@ -94,7 +94,7 @@ test('creates the current schema for a new database', () => {
     const store = new DeviceStore(path)
     store.close()
     const database = new DatabaseSync(path)
-    assert.equal(databaseVersion(database), 3)
+    assert.equal(databaseVersion(database), 4)
     assert.equal(
       database.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?")
         .get('idx_devices_name_nocase')!.name,
@@ -119,6 +119,8 @@ test('migrates version 1 to 3 without losing devices and is idempotent', () => {
       mac: 'AA:BB:CC:DD:EE:01',
       address: null,
       sshUser: null,
+      remoteMethod: 'ssh',
+      companionConfigured: false,
       createdAt: '2026-01-01T00:00:00.000Z',
       updatedAt: '2026-01-02T00:00:00.000Z',
       lastSentAt: '2026-01-03T00:00:00.000Z',
@@ -133,7 +135,7 @@ test('migrates version 1 to 3 without losing devices and is idempotent', () => {
     second = undefined
 
     const database = new DatabaseSync(path)
-    assert.equal(databaseVersion(database), 3)
+    assert.equal(databaseVersion(database), 4)
     assert.equal(
       database.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'index' AND name = ?")
         .get('idx_devices_name_nocase')!.count,
@@ -178,12 +180,12 @@ test('does not modify a database from a newer release', () => {
     database.exec(`
       CREATE TABLE sentinel (value TEXT NOT NULL);
       INSERT INTO sentinel VALUES ('preserved');
-      PRAGMA user_version = 4;
+      PRAGMA user_version = 5;
     `)
     database.close()
     assert.throws(() => new DeviceStore(path), /Unsupported database version/)
     const unchanged = new DatabaseSync(path)
-    assert.equal(databaseVersion(unchanged), 4)
+    assert.equal(databaseVersion(unchanged), 5)
     assert.equal(unchanged.prepare('SELECT value FROM sentinel').get()!.value, 'preserved')
     assert.equal(unchanged.prepare('PRAGMA journal_mode').get()!.journal_mode, 'delete')
     unchanged.close()
@@ -245,7 +247,7 @@ test('migrates version 2 to 3 with nullable remote fields', () => {
     store.close()
     store = undefined
     const database = new DatabaseSync(path)
-    assert.equal(databaseVersion(database), 3)
+    assert.equal(databaseVersion(database), 4)
     assert.equal(database.prepare('SELECT lastShutdownAttemptMs FROM devices WHERE id = ?').get('legacy')!.lastShutdownAttemptMs, null)
     database.close()
   }
@@ -261,6 +263,25 @@ test('shutdown uses saved target, maps safe and forced modes, and persists coold
     assert.deepEqual(await shutdownDevice(store, device.id, false, send), { message: 'Shutdown command accepted', retryAfter: 10 })
     assert.deepEqual(calls, [{ address: input.address, sshUser: input.sshUser, force: false }])
     await assert.rejects(shutdownDevice(store, device.id, true, send), { statusCode: 429, retryAfter: 10 })
+  }
+  finally { store.close() }
+})
+
+test('stores Companion secret privately, preserves it on blank edit and clears it when switching to SSH', () => {
+  const store = new DeviceStore(':memory:')
+  try {
+    const code = 'jhcp1_' + 'B'.repeat(43)
+    const companion = store.create({ name: 'Companion', mac: 'AA:BB:CC:DD:EE:11', address: '192.168.1.30', remoteMethod: 'companion', sshUser: null, companionCode: code })
+    assert.equal(companion.remoteMethod, 'companion')
+    assert.equal(companion.companionConfigured, true)
+    assert.equal('companionSecret' in companion, false)
+    assert.equal(store.companionSecret(companion.id), 'B'.repeat(43))
+    const preserved = store.update(companion.id, { name: companion.name, mac: companion.mac, address: companion.address!, remoteMethod: 'companion', sshUser: null })
+    assert.equal(preserved.companionConfigured, true)
+    store.update(companion.id, { ...input, remoteMethod: 'ssh' })
+    assert.equal(store.get(companion.id).remoteMethod, 'ssh')
+    assert.equal(store.get(companion.id).companionConfigured, false)
+    assert.throws(() => store.companionSecret(companion.id), { statusCode: 409 })
   }
   finally { store.close() }
 })

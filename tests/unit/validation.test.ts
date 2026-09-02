@@ -17,7 +17,7 @@ test('rejects malformed, mixed, multicast and zero MAC addresses', () => {
 })
 
 test('validates names and rejects unexpected fields', () => {
-  assert.deepEqual(parseDeviceInput({ ...valid, name: '  Living room PC  ' }), { ...valid, name: 'Living room PC', mac: 'AA:BB:CC:DD:EE:FF' })
+  assert.deepEqual(parseDeviceInput({ ...valid, name: '  Living room PC  ' }), { ...valid, name: 'Living room PC', mac: 'AA:BB:CC:DD:EE:FF', remoteMethod: 'ssh' })
   for (const value of [null, [], { ...valid, name: '' }, { ...valid, name: 'a'.repeat(81) }, { ...valid, name: 'x\ny' }, { ...valid, command: 'ls' }]) {
     assert.throws(() => parseDeviceInput(value), { statusCode: 400 })
   }
@@ -33,6 +33,16 @@ test('accepts private IPv4 and safe SSH users but rejects command injection and 
     { ...valid, sshUser: '-oProxyCommand=calc' },
     { ...valid, sshUser: 'domain\\user' },
   ]) assert.throws(() => parseDeviceInput(value), { statusCode: 400 })
+})
+
+test('validates Companion pairing codes and allows blank code only on existing Companion devices', () => {
+  const code = 'jhcp1_' + 'A'.repeat(43)
+  assert.deepEqual(parseDeviceInput({ name: 'Companion', mac: valid.mac, address: valid.address, remoteMethod: 'companion', companionCode: code }), {
+    name: 'Companion', mac: 'AA:BB:CC:DD:EE:FF', address: valid.address, remoteMethod: 'companion', sshUser: null, companionCode: code,
+  })
+  assert.throws(() => parseDeviceInput({ ...valid, remoteMethod: 'companion' }), { statusCode: 400 })
+  assert.doesNotThrow(() => parseDeviceInput({ ...valid, remoteMethod: 'companion', companionCode: '' }, { remoteMethod: 'companion' }))
+  assert.throws(() => parseDeviceInput({ ...valid, remoteMethod: 'companion', companionCode: 'jhcp1_bad' }), { statusCode: 400 })
 })
 
 test('shutdown accepts one boolean and rejects extra command fields', () => {

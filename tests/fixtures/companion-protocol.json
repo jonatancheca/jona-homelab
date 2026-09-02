@@ -1,0 +1,12 @@
+{
+  "secret": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+  "method": "POST",
+  "path": "/v1/shutdown",
+  "timestamp": 1777777777,
+  "nonce": "abcdefghijklmnopqrstuv",
+  "body": "{\"force\":true}",
+  "requestSignature": "5f7d645d1ca33f570dcca821f0db93983a8be889a75ad3a3de08c76a8f7b7cc1",
+  "responseStatus": 202,
+  "responseBody": "{\"accepted\":true,\"retryAfter\":10}",
+  "responseSignature": "f1d2a42f1a2ea2b0e5ad66dc07c3a0d6cbb8879acbc3c4b0a036fb4e265a7f62"
+}

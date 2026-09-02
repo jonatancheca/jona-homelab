@@ -4,16 +4,22 @@ export interface Device {
   mac: string
   address: string | null
   sshUser: string | null
+  remoteMethod: RemoteMethod
+  companionConfigured: boolean
   createdAt: string
   updatedAt: string
   lastSentAt: string | null
 }
 
+export type RemoteMethod = 'ssh' | 'companion'
+
 export interface DeviceInput {
   name: string
   mac: string
   address: string
-  sshUser: string
+  remoteMethod?: RemoteMethod
+  sshUser: string | null
+  companionCode?: string
 }
 
 export interface WakeResult {
@@ -25,7 +31,8 @@ export interface WakeResult {
 export interface DeviceStatus {
   deviceId: string
   networkReachable: boolean
-  sshReady: boolean
+  remoteReady: boolean
+  remoteMethod: RemoteMethod
   checkedAt: string
 }
 

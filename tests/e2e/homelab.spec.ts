@@ -148,7 +148,7 @@ test('shows network and SSH status, refreshes manually, and confirms safe or for
     return route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify([{ deviceId: device.id, networkReachable: false, sshReady: true, checkedAt: new Date().toISOString() }]),
+      body: JSON.stringify([{ deviceId: device.id, networkReachable: false, remoteReady: true, remoteMethod: 'ssh', checkedAt: new Date().toISOString() }]),
     })
   })
   await page.route(`**/api/devices/${device.id}/shutdown`, async (route) => {
@@ -174,5 +174,32 @@ test('shows network and SSH status, refreshes manually, and confirms safe or for
   await expect(dialog.getByText('Forced shutdown can permanently lose unsaved work.')).toBeVisible()
   await dialog.getByRole('button', { name: 'Force shut down' }).click()
   expect(shutdownModes).toEqual([false, true])
+  await request.delete(`/api/devices/${device.id}`, { headers, data: {} })
+})
+
+test('registers Companion devices without exposing pairing code and dispatches shutdown', async ({ page, request }) => {
+  const headers = { 'content-type': 'application/json' }
+  const pairingCode = 'jhcp1_' + 'A'.repeat(43)
+  const created = await request.post('/api/devices', { headers, data: { name: 'Companion Windows', mac: 'AA:BB:CC:DD:EE:07', address: '192.168.255.17', remoteMethod: 'companion', companionCode: pairingCode } })
+  expect(created.status()).toBe(201)
+  const device = await created.json()
+  expect(device.remoteMethod).toBe('companion')
+  expect(device.companionConfigured).toBe(true)
+  expect(device.companionSecret).toBeUndefined()
+  await page.route('**/api/devices/status', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([{ deviceId: device.id, networkReachable: true, remoteReady: true, remoteMethod: 'companion', checkedAt: new Date().toISOString() }]) }))
+  await page.route(`**/api/devices/${device.id}/shutdown`, route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ message: 'Shutdown command accepted', retryAfter: 10 }) }))
+  await page.goto('/')
+  const card = page.getByRole('article', { name: 'Companion Windows' })
+  await expect(card.getByText('Companion ready', { exact: true })).toBeVisible()
+  await expect(card.getByText('Companion · 192.168.255.17', { exact: true })).toBeVisible()
+  await card.getByRole('button', { name: 'Edit Companion Windows' }).click()
+  const form = page.getByRole('dialog', { name: 'Edit device' })
+  await expect(form.getByText('Already paired. Leave blank to keep the current code.')).toBeVisible()
+  expect(await form.locator('input').evaluateAll((elements, code) => elements.some(element => (element as HTMLInputElement).value === code), pairingCode)).toBe(false)
+  await form.getByRole('button', { name: 'Cancel' }).click()
+  await card.getByRole('button', { name: 'Shut down', exact: true }).click()
+  await expect(page.getByRole('dialog', { name: 'Shut down Companion Windows?' })).toBeVisible()
+  await page.getByRole('dialog', { name: 'Shut down Companion Windows?' }).getByRole('button', { name: 'Shut down safely' }).click()
+  await expect(page.getByRole('status')).toContainText('Shutdown command accepted')
   await request.delete(`/api/devices/${device.id}`, { headers, data: {} })
 })

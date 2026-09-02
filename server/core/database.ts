@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import type { Device, DeviceInput } from '../../shared/types/device.ts'
+import type { Device, DeviceInput, RemoteMethod } from '../../shared/types/device.ts'
+import { companionSecretFromCode } from './validation.ts'
 import { AppError } from './errors.ts'
 
 export const WAKE_COOLDOWN_MS = 5000
@@ -35,11 +36,28 @@ const DATABASE_MIGRATIONS = [
       ALTER TABLE devices ADD COLUMN lastShutdownAttemptMs INTEGER;
     `,
   },
+  {
+    version: 4,
+    sql: `
+      ALTER TABLE devices ADD COLUMN remoteMethod TEXT NOT NULL DEFAULT 'ssh';
+      ALTER TABLE devices ADD COLUMN companionSecret TEXT;
+    `,
+  },
 ] as const
 
 const CURRENT_DATABASE_VERSION = DATABASE_MIGRATIONS.length
 
-interface DeviceRow extends Device {
+interface DeviceRow {
+  id: string
+  name: string
+  mac: string
+  address: string | null
+  sshUser: string | null
+  remoteMethod: RemoteMethod
+  companionSecret: string | null
+  createdAt: string
+  updatedAt: string
+  lastSentAt: string | null
   lastAttemptMs: number | null
   lastShutdownAttemptMs: number | null
 }
@@ -51,6 +69,8 @@ function publicDevice(row: DeviceRow): Device {
     mac: row.mac,
     address: row.address,
     sshUser: row.sshUser,
+    remoteMethod: row.remoteMethod === 'companion' ? 'companion' : 'ssh',
+    companionConfigured: Boolean(row.companionSecret),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     lastSentAt: row.lastSentAt,
@@ -125,22 +145,36 @@ export class DeviceStore {
   create(input: DeviceInput, now = Date.now()): Device {
     const id = randomUUID()
     const timestamp = new Date(now).toISOString()
+    const remoteMethod = input.remoteMethod || 'ssh'
+    const companionSecret = remoteMethod === 'companion'
+      ? companionSecretFromCode(input.companionCode)
+      : null
     try {
-      this.database.prepare('INSERT INTO devices (id, name, mac, address, sshUser, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?)')
-        .run(id, input.name, input.mac, input.address, input.sshUser, timestamp, timestamp)
+      this.database.prepare('INSERT INTO devices (id, name, mac, address, sshUser, remoteMethod, companionSecret, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+        .run(id, input.name, input.mac, input.address, remoteMethod === 'ssh' ? input.sshUser : null, remoteMethod, companionSecret, timestamp, timestamp)
     }
     catch (error) { this.handleWriteError(error) }
     return this.get(id)
   }
 
   update(id: string, input: DeviceInput, now = Date.now()): Device {
-    this.get(id)
+    const current = this.row(id)
+    const remoteMethod = input.remoteMethod || 'ssh'
+    const companionSecret = remoteMethod === 'companion'
+      ? (input.companionCode?.trim() ? companionSecretFromCode(input.companionCode) : current.remoteMethod === 'companion' ? current.companionSecret : null)
+      : null
+    if (remoteMethod === 'companion' && !companionSecret) {
+      throw new AppError(400, 'Enter the Companion pairing code.')
+    }
     try {
       this.database.prepare(`UPDATE devices SET name = ?,
         lastSentAt = CASE WHEN mac = ? THEN lastSentAt ELSE NULL END,
-        lastShutdownAttemptMs = CASE WHEN address = ? AND sshUser = ? THEN lastShutdownAttemptMs ELSE NULL END,
-        mac = ?, address = ?, sshUser = ?, updatedAt = ? WHERE id = ?`)
-        .run(input.name, input.mac, input.address, input.sshUser, input.mac, input.address, input.sshUser, new Date(now).toISOString(), id)
+        lastShutdownAttemptMs = CASE WHEN address = ? AND remoteMethod = ? AND sshUser IS ? AND companionSecret IS ? THEN lastShutdownAttemptMs ELSE NULL END,
+        mac = ?, address = ?, sshUser = ?, remoteMethod = ?, companionSecret = ?, updatedAt = ? WHERE id = ?`)
+        .run(input.name, input.mac, input.address, remoteMethod, remoteMethod === 'ssh' ? input.sshUser : null,
+          remoteMethod === 'companion' ? companionSecret : null,
+          input.mac, input.address, remoteMethod === 'ssh' ? input.sshUser : null, remoteMethod, companionSecret,
+          new Date(now).toISOString(), id)
     }
     catch (error) { this.handleWriteError(error) }
     return this.get(id)
@@ -175,7 +209,9 @@ export class DeviceStore {
 
   claimShutdown(id: string, now = Date.now()): Device {
     const row = this.row(id)
-    if (!row.address || !row.sshUser) throw new AppError(409, 'Configure the device IPv4 address and SSH user first.')
+    if (!row.address) throw new AppError(409, 'Configure the device private IPv4 address first.')
+    if (row.remoteMethod === 'ssh' && !row.sshUser) throw new AppError(409, 'Configure the device SSH user first.')
+    if (row.remoteMethod === 'companion' && !row.companionSecret) throw new AppError(409, 'Configure the Companion pairing code first.')
     const result = this.database.prepare(`UPDATE devices SET lastShutdownAttemptMs = ?
       WHERE id = ? AND (lastShutdownAttemptMs IS NULL OR lastShutdownAttemptMs <= ?)`)
       .run(now, id, now - SHUTDOWN_COOLDOWN_MS)
@@ -184,6 +220,19 @@ export class DeviceStore {
       throw new AppError(429, `Wait ${retryAfter} seconds before trying shutdown again.`, retryAfter)
     }
     return publicDevice(row)
+  }
+
+  companionSecret(id: string): string {
+    const row = this.row(id)
+    if (row.remoteMethod !== 'companion' || !row.companionSecret) {
+      throw new AppError(409, 'Configure the Companion pairing code first.')
+    }
+    return row.companionSecret
+  }
+
+  companionSecretOrNull(id: string): string | null {
+    const row = this.row(id)
+    return row.remoteMethod === 'companion' ? row.companionSecret : null
   }
 
   close(): void { this.database.close() }

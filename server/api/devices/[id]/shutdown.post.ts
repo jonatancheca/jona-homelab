@@ -7,5 +7,11 @@ import { apiHandler, deviceId, readJson } from '../../../utils/http'
 export default apiHandler(async (event) => {
   const { store, settings } = getRuntime()
   const { force } = parseShutdownInput(await readJson(event))
-  return shutdownDevice(store, deviceId(event), force, (device, shouldForce) => sendShutdownCommand(device, shouldForce, settings.ssh))
+  return shutdownDevice(store, deviceId(event), force, (device, shouldForce) => sendShutdownCommand(
+    device,
+    shouldForce,
+    settings.ssh,
+    undefined,
+    device.remoteMethod === 'companion' ? store.companionSecret(device.id) : undefined,
+  ))
 })

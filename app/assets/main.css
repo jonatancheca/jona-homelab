@@ -94,6 +94,13 @@ input::placeholder { color: #a0a7a2; }
 .field input { border: 1px solid #dbe3dd; border-radius: 7px; padding: 12px; font-size: 13px; min-width: 0; width: 100%; color: #314b39; }
 .field span { font-size: 10px; font-weight: 400; color: #95a097; line-height: 1.6; }
 .mac-input { font-family: ui-monospace, monospace; }
+.remote-method { border: 0; padding: 0; margin: 22px 0 0; display: grid; gap: 9px; }
+.remote-method legend { font-size: 12px; font-weight: 550; margin-bottom: 2px; }
+.remote-method label { display: flex; align-items: flex-start; gap: 10px; border: 1px solid #e0e6e1; border-radius: 8px; padding: 11px 12px; cursor: pointer; }
+.remote-method input { margin-top: 3px; accent-color: #26744f; }
+.remote-method span { display: grid; gap: 4px; }
+.remote-method strong { font-size: 12px; }
+.remote-method small { color: #78867c; font-size: 10px; line-height: 1.55; font-weight: 400; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 10px; padding-top: 25px; margin-top: 24px; border-top: 1px solid #edf0ed; }
 .form-error { color: #aa4d46; background: #fcf0ee; padding: 12px; border-radius: 6px; font-size: 12px; line-height: 1.7; }
 .danger { background: #aa5149; color: #fff; }

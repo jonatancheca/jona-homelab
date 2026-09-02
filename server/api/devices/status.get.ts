@@ -4,5 +4,5 @@ import { apiHandler } from '../../utils/http'
 
 export default apiHandler(() => {
   const { store, settings } = getRuntime()
-  return checkDevicesStatus(store.list(), settings.ssh)
+  return checkDevicesStatus(store.list(), settings.ssh, device => store.companionSecretOrNull(device.id))
 })

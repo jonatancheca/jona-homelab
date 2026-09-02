@@ -2,7 +2,7 @@
 
 Panel privado en español para registrar ordenadores y enviarles paquetes Wake-on-LAN desde un Ubuntu siempre encendido en su misma subred.
 
-Nuxt 4 + SQLite integrado en Node. Un proceso para la aplicación y otro para `cloudflared`. Sin Docker, ORM, servidor de base de datos, Nginx, PM2 ni ejecutables de Wake-on-LAN. El apagado opcional usa OpenSSH de Windows con una cuenta dedicada restringida; no instala un agente propio.
+Nuxt 4 + SQLite integrado en Node. Un proceso para la aplicación y otro para `cloudflared`. Sin Docker, ORM, servidor de base de datos, Nginx, PM2 ni ejecutables de Wake-on-LAN. El apagado remoto admite OpenSSH o `Jona Homelab Companion`, un servicio Windows dedicado con bandeja y API LAN firmada.
 
 ## Requisitos
 
@@ -65,6 +65,8 @@ Cada commit que llega a `main` genera además una release oficial `main-<sha>` d
 - `jona-homelab.tar.gz`: runtime de `.output`, `RELEASE_VERSION`, actualizador, README y archivos de despliegue.
 - `jona-homelab.tar.gz.sha256`: checksum obligatorio del paquete.
 - `update.sh`: copia independiente para incorporar el actualizador a instalaciones antiguas.
+- `jona-homelab-companion-win-x64.zip`: servicio y bandeja Windows 11 x64 auto-contenidos.
+- `jona-homelab-companion-win-x64.zip.sha256`: checksum del paquete Windows.
 
 La release se compila en Linux y no incluye Node. No hacen falta fuentes, pnpm ni herramientas de compilación en producción.
 
@@ -124,6 +126,16 @@ La salud debe responder 200 y la consulta directa de equipos, 200 cuando se real
 El servicio funciona sin root, sin capacidades especiales y con el sistema de archivos de solo lectura salvo su estado y directorio temporal. No actives `PrivateNetwork=true`: impediría alcanzar la LAN. No actives `MemoryDenyWriteExecute=true`: impediría el JIT de Node.
 
 ## Configurar estado y apagado de Windows
+
+### Opción recomendada: Jona Homelab Companion
+
+Descarga `jona-homelab-companion-win-x64.zip` y su `.sha256` desde la misma release. Verifica el checksum, extrae el ZIP y ejecuta `install.ps1` como administrador. El instalador crea el servicio automático, la tarea de bandeja, el firewall del perfil privado (TCP 47654) y el estado protegido en `C:\ProgramData\JonaHomelabCompanion`.
+
+Abre la bandeja, copia el código `jhcp1_...` y edita el equipo en el panel: selecciona `Companion`, pega el código y guarda. El código no aparece en `GET /api/devices`; para cambiarlo, rota el código en la bandeja y vuelve a pegarlo. La API firma solicitudes y respuestas con HMAC, rechaza nonces repetidos y solo acepta clientes IPv4 privados.
+
+El servicio comprueba releases al arrancar y cada 24 horas. Descarga el ZIP por HTTPS, valida checksum y hace rollback automático si la versión nueva no supera `/health`. Desinstala con `uninstall.ps1`; la configuración queda preservada salvo usar `-PurgeData`. El paquete no tiene firma Authenticode y SmartScreen puede mostrar un aviso.
+
+### Alternativa SSH
 
 Reserva una IPv4 privada para cada PC en DHCP. En Ubuntu crea una clave exclusiva, sin frase de paso, legible solo por el servicio:
 
@@ -203,16 +215,16 @@ Cloudflare Access debe proteger todas las rutas de negocio. El backend no valida
 | Método y ruta | Entrada / resultado |
 | --- | --- |
 | `GET /api/devices` | Lista de equipos |
-| `POST /api/devices` | Nombre, MAC, `address` IPv4 privada y `sshUser`; 201 |
-| `PATCH /api/devices/:id` | Los cuatro campos completos; 200 |
+| `POST /api/devices` | Nombre, MAC, `address` IPv4 privada y método (`sshUser` o `companionCode`); 201 |
+| `PATCH /api/devices/:id` | Campos completos; código Companion vacío conserva el existente; 200 |
 | `DELETE /api/devices/:id` | `{}`; 204 |
 | `POST /api/devices/:id/wake` | `{}`; mensaje de envío, equipo y `retryAfter` |
-| `GET /api/devices/status` | `networkReachable`, `sshReady` y `checkedAt` por equipo |
+| `GET /api/devices/status` | `networkReachable`, `remoteReady`, `remoteMethod` y `checkedAt` por equipo |
 | `POST /api/devices/:id/shutdown` | `{ "force": false }`; aceptación y `retryAfter` |
 | `GET /api/session` | Modo `development` o `access`, sin datos de identidad |
 | `GET /api/health` | Salud mínima, sin datos privados |
 
-Los equipos contienen `id`, `name`, `mac`, `address`, `sshUser`, `createdAt`, `updatedAt` y `lastSentAt` (ISO UTC o `null`). Filas anteriores conservan `address` y `sshUser` como `null` hasta editarlas. Los errores usan 400/413/415 para entrada inválida, 404 para equipo inexistente, 409 para conflictos, 429 para enfriamiento, 502 para fallo remoto y 503 cuando SSH no está configurado. Los 429 incluyen `Retry-After`. Cooldowns de encendido y apagado persisten en SQLite. No hay reintentos automáticos.
+Los equipos contienen `id`, `name`, `mac`, `address`, `sshUser`, `remoteMethod`, `companionConfigured`, `createdAt`, `updatedAt` y `lastSentAt` (ISO UTC o `null`). El secreto Companion nunca se serializa. Filas anteriores conservan método SSH hasta editarlas. Los errores usan 400/413/415 para entrada inválida, 404 para equipo inexistente, 409 para conflictos, 429 para enfriamiento, 502 para fallo remoto y 503 cuando el transporte no está configurado. Los 429 incluyen `Retry-After`. Cooldowns de encendido y apagado persisten en SQLite. No hay reintentos automáticos.
 
 ## Fuentes técnicas
 
