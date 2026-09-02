@@ -5,7 +5,10 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"time"
 
 	"golang.org/x/sys/windows/svc"
@@ -21,6 +24,7 @@ func (companionService) Execute(_ []string, requests <-chan svc.ChangeRequest, s
 	statuses <- svc.Status{State: svc.StartPending, WaitHint: 5000}
 	config, err := loadConfig()
 	if err != nil {
+		writeServiceLog("startup: " + err.Error())
 		statuses <- svc.Status{State: svc.Stopped, Win32ExitCode: 1}
 		return false, 1
 	}
@@ -45,12 +49,29 @@ func (companionService) Execute(_ []string, requests <-chan svc.ChangeRequest, s
 			}
 		case err := <-serverErrors:
 			if err != nil && !errors.Is(err, http.ErrServerClosed) {
+				writeServiceLog("http: " + err.Error())
 				statuses <- svc.Status{State: svc.Stopped, Win32ExitCode: 1}
 				return false, 1
 			}
 			return false, 0
 		}
 	}
+}
+
+func writeServiceLog(message string) {
+	if message == "" {
+		return
+	}
+	path := filepath.Join(dataDirectory(), "service.log")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return
+	}
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		return
+	}
+	defer file.Close()
+	_, _ = fmt.Fprintf(file, "%s %s\n", time.Now().UTC().Format(time.RFC3339Nano), message)
 }
 
 func runUpdateLoop(ctx context.Context, updates *updateCoordinator) {

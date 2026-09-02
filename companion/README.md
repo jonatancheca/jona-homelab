@@ -27,6 +27,14 @@ Start-Process -WindowStyle Hidden -FilePath 'C:\Program Files\JonaHomelabCompani
 
 The tray window shows service status, version, local IPv4 address, API port, pairing code and the last authenticated server call. Copy or rotate the code, refresh state and check updates from the window or tray menu.
 
+If Windows shows the service as stopped, read the safe startup error log from an administrator PowerShell:
+
+```powershell
+Get-Content 'C:\ProgramData\JonaHomelabCompanion\service.log'
+```
+
+The log contains startup/bind errors only; it never contains the pairing secret or request signatures.
+
 Open the tray, copy the `jhcp1_...` pairing code, then edit the device in Jona Homelab and select `Companion`. Paste the code and save. The code is never returned by the homelab API.
 
 ## Protocol

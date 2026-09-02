@@ -25,6 +25,7 @@ const (
 	dataDirectoryName    = "JonaHomelabCompanion"
 	configFileName       = "config.json"
 	dpapiEntropy         = "jona-homelab-companion"
+	dpapiScopeMachine    = "machine"
 	configFilePermission = 0o600
 )
 
@@ -32,6 +33,7 @@ type companionConfig struct {
 	EncryptedSecret string `json:"encryptedSecret"`
 	Port            int    `json:"port"`
 	LastServerCall  string `json:"lastServerCall,omitempty"`
+	DPAPIScope      string `json:"dpapiScope,omitempty"`
 }
 
 type configStore struct {
@@ -64,7 +66,11 @@ func loadConfig() (*configStore, error) {
 		if err != nil {
 			return nil, err
 		}
-		store.cfg = companionConfig{EncryptedSecret: base64.StdEncoding.EncodeToString(encrypted), Port: companionPort}
+		store.cfg = companionConfig{
+			EncryptedSecret: base64.StdEncoding.EncodeToString(encrypted),
+			Port:            companionPort,
+			DPAPIScope:      dpapiScopeMachine,
+		}
 		if err := store.saveLocked(); err != nil {
 			return nil, err
 		}
@@ -81,6 +87,23 @@ func loadConfig() (*configStore, error) {
 	}
 	if _, err := store.secretLocked(); err != nil {
 		return nil, err
+	}
+	if store.cfg.DPAPIScope != dpapiScopeMachine {
+		// Older Companion builds used user-scoped DPAPI. Re-protect the existing
+		// secret once so a LocalSystem service and the interactive tray share it.
+		secret, err := store.secretLocked()
+		if err != nil {
+			return nil, err
+		}
+		encrypted, err := protectData(secret)
+		if err != nil {
+			return nil, err
+		}
+		store.cfg.EncryptedSecret = base64.StdEncoding.EncodeToString(encrypted)
+		store.cfg.DPAPIScope = dpapiScopeMachine
+		if err := store.saveLocked(); err != nil {
+			return nil, err
+		}
 	}
 	return store, nil
 }
@@ -207,10 +230,14 @@ func cryptData(value []byte, protect bool) ([]byte, error) {
 	entropy := windows.DataBlob{Size: uint32(len(entropyBytes)), Data: &entropyBytes[0]}
 	var output windows.DataBlob
 	var err error
+	var flags uint32
 	if protect {
-		err = windows.CryptProtectData(&input, nil, &entropy, 0, nil, 0, &output)
+		// The service runs as LocalSystem. Machine scope is required so the
+		// interactive tray can read the same protected secret.
+		flags = windows.CRYPTPROTECT_LOCAL_MACHINE
+		err = windows.CryptProtectData(&input, nil, &entropy, 0, nil, flags, &output)
 	} else {
-		err = windows.CryptUnprotectData(&input, nil, &entropy, 0, nil, 0, &output)
+		err = windows.CryptUnprotectData(&input, nil, &entropy, 0, nil, flags, &output)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("DPAPI operation failed: %w", err)

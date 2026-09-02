@@ -19,6 +19,7 @@ func main() {
 		os.Exit(runUpdater(args[1:]))
 	case "--service", "":
 		if err := runService(); err != nil {
+			writeServiceLog("dispatcher: " + err.Error())
 			os.Exit(1)
 		}
 	default:
