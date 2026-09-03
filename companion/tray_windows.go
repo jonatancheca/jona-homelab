@@ -21,12 +21,19 @@ const (
 	wmCreate         = 0x0001
 	wmDestroy        = 0x0002
 	wmClose          = 0x0010
+	wmContextMenu    = 0x007B
 	wmCommand        = 0x0111
 	wmSetFont        = 0x0030
 	wmCtlColorStatic = 0x0138
 	wmAppResult      = 0x8001
 	wmTrayMessage    = 0x8002
 	wmNull           = 0x0000
+	wmLButtonDown    = 0x0201
+	wmLButtonDblClk  = 0x0203
+	wmRButtonDown    = 0x0204
+	wmRButtonUp      = 0x0205
+	ninSelect        = 0x0400
+	ninKeySelect     = 0x0401
 
 	wsCaption      = 0x00C00000
 	wsSysMenu      = 0x00080000
@@ -62,6 +69,7 @@ const (
 	nifTip             = 0x00000004
 	nimAdd             = 0x00000000
 	nimDelete          = 0x00000002
+	nimSetFocus        = 0x00000003
 	nimSetVersion      = 0x00000004
 	notifyIconVersion4 = 4
 
@@ -78,6 +86,14 @@ const (
 	idRefresh = 1003
 	idUpdate  = 1004
 	idExit    = 1005
+)
+
+type trayEventKind uint8
+
+const (
+	trayEventIgnored trayEventKind = iota
+	trayEventShow
+	trayEventMenu
 )
 
 var (
@@ -113,8 +129,6 @@ var (
 	procLoadIcon            = user32.NewProc("LoadIconW")
 	procLoadCursor          = user32.NewProc("LoadCursorW")
 	procGetSysColorBrush    = user32.NewProc("GetSysColorBrush")
-	procSetTextColor        = user32.NewProc("SetTextColor")
-	procSetBkMode           = user32.NewProc("SetBkMode")
 	procShellNotifyIcon     = shell32.NewProc("Shell_NotifyIconW")
 	procGetModuleHandle     = kernel32.NewProc("GetModuleHandleW")
 	procGlobalAlloc         = kernel32.NewProc("GlobalAlloc")
@@ -122,6 +136,8 @@ var (
 	procGlobalUnlock        = kernel32.NewProc("GlobalUnlock")
 	procGlobalFree          = kernel32.NewProc("GlobalFree")
 	procRtlMoveMemory       = kernel32.NewProc("RtlMoveMemory")
+	procSetTextColor        = gdi32.NewProc("SetTextColor")
+	procSetBkMode           = gdi32.NewProc("SetBkMode")
 	procGetStockObject      = gdi32.NewProc("GetStockObject")
 )
 
@@ -321,10 +337,10 @@ func (t *trayApplication) windowProc(hwnd windows.HWND, message uint32, wParam, 
 		}
 		return 0
 	case wmTrayMessage:
-		event := uint32(lParam)
-		if event == 0x0203 || event == 0x0205 {
+		switch trayEventKindFor(lParam) {
+		case trayEventShow:
 			t.show()
-		} else if event == 0x0204 {
+		case trayEventMenu:
 			t.showMenu()
 		}
 		return 0
@@ -485,8 +501,22 @@ func (t *trayApplication) showMenu() {
 	procGetCursorPos.Call(uintptr(unsafe.Pointer(&point)))
 	procSetForegroundWindow.Call(uintptr(t.hwnd))
 	procTrackPopupMenu.Call(menu, tpmRightButton, uintptr(point.X), uintptr(point.Y), 0, uintptr(t.hwnd), 0)
+	procShellNotifyIcon.Call(nimSetFocus, uintptr(unsafe.Pointer(&t.icon)))
 	procPostMessage.Call(uintptr(t.hwnd), wmNull, 0, 0)
 	procDestroyMenu.Call(menu)
+}
+
+func trayEventKindFor(lParam uintptr) trayEventKind {
+	// NOTIFYICON_VERSION_4 packs the notification in LOWORD(lParam) and the
+	// icon ID in HIWORD(lParam). LOWORD also preserves legacy callback events.
+	switch uint32(lowWord(lParam)) {
+	case wmLButtonDown, wmLButtonDblClk, ninSelect, ninKeySelect:
+		return trayEventShow
+	case wmContextMenu, wmRButtonDown, wmRButtonUp:
+		return trayEventMenu
+	default:
+		return trayEventIgnored
+	}
 }
 
 func createWindowEx(extended uint32, class, title *uint16, style uint32, x, y, width, height int, parent windows.HWND, id uintptr, instance uintptr) uintptr {
