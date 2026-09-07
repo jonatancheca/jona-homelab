@@ -6,13 +6,14 @@ test('uses a dark-only theme', async ({ page }) => {
   await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(16, 23, 19)')
 })
 
-test('removes Access indicator and its header space on mobile', async ({ page }) => {
+test('removes Access indicator and its header space', async ({ page }) => {
   await page.goto('/')
   await page.setViewportSize({ width: 1280, height: 900 })
-  await expect(page.locator('.topbar')).toHaveCSS('display', 'flex')
+  await expect(page.locator('.topbar')).toHaveCount(0)
+  await expect(page.locator('.access-badge')).toHaveCount(0)
   await page.setViewportSize({ width: 390, height: 900 })
-  await expect(page.locator('.topbar')).toHaveCSS('display', 'none')
-  await expect(page.locator('.access-badge')).toBeHidden()
+  await expect(page.locator('.topbar')).toHaveCount(0)
+  await expect(page.locator('.access-badge')).toHaveCount(0)
 })
 
 test('shows focused device workspace without promotional navigation', async ({ page, request }) => {

@@ -4,7 +4,6 @@ import type { Device, DeviceStatus, ShutdownResult, WakeResult } from '../shared
 const devices = ref<Device[]>([])
 const loading = ref(true)
 const loadError = ref('')
-const mode = ref('')
 const search = ref('')
 const formDialog = ref<HTMLDialogElement>()
 const deleteDialog = ref<HTMLDialogElement>()
@@ -190,7 +189,6 @@ function shutdownDescription(device: Device | null): string {
 
 onMounted(() => {
   void loadDevices().then(() => refreshStatuses())
-  void $fetch<{ mode: string }>('/api/session').then(result => { mode.value = result.mode }).catch(() => {})
   timer = setInterval(() => { now.value = Date.now() }, 500)
   statusTimer = setInterval(() => { void refreshStatuses() }, 30000)
 })
@@ -206,9 +204,6 @@ onUnmounted(() => {
   <div class="shell">
     <a class="skip-link" href="#main">Skip to content</a>
     <div class="workspace">
-      <header class="topbar">
-        <span v-if="mode" class="access-badge"><AppIcon name="shield" />{{ mode === 'access' ? 'Cloudflare Access' : 'Local development' }}</span>
-      </header>
       <main id="main">
         <section aria-labelledby="devices-heading">
           <div class="section-heading">
