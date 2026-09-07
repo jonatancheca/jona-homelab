@@ -168,7 +168,7 @@ La última orden debe responder `ready`. Repite la prueba para cada IP. Configur
 
 ### Solo Wake-on-LAN
 
-Si un PC no tiene Companion ni SSH, selecciona `Wake-on-LAN only` al registrarlo. Solo necesita nombre y MAC; la dirección es opcional. Si la guardas, el panel puede comprobar el ping, pero no habilita apagado remoto. Sin dirección, el equipo sigue disponible para enviarle paquetes Wake-on-LAN, sin comprobación de estado de red.
+Si un PC no tiene Companion ni SSH, selecciona `Wake-on-LAN only` al registrarlo. Solo necesita nombre y MAC; la dirección es opcional. Si guardas una IPv4 privada o nombre de máquina, el panel puede comprobar el ping, pero no habilita apagado remoto. Sin dirección, el equipo sigue disponible para enviarle paquetes Wake-on-LAN, sin comprobación de estado de red.
 
 ## Actualizaciones y rollback
 

@@ -64,14 +64,16 @@ test('unconfigured legacy device is reported without executing processes', async
   assert.equal(status.remoteReady, false)
 })
 
-test('Wake-on-LAN-only status checks ping without remote commands', async () => {
-  const calls: string[] = []
-  const runner: CommandRunner = async (command) => { calls.push(command); return true }
-  const status = await checkDeviceStatus({ ...device, sshUser: null, remoteMethod: 'none' }, ssh, runner)
-  assert.equal(status.networkReachable, true)
-  assert.equal(status.remoteReady, false)
-  assert.equal(status.remoteMethod, 'none')
-  assert.deepEqual(calls, ['ping'])
+test('Wake-on-LAN-only status checks configured IP or machine name with ping only', async () => {
+  for (const address of ['192.168.1.25', 'MY-PC']) {
+    const calls: Array<{ command: string, args: string[] }> = []
+    const runner: CommandRunner = async (command, args) => { calls.push({ command, args }); return true }
+    const status = await checkDeviceStatus({ ...device, address, sshUser: null, remoteMethod: 'none' }, ssh, runner)
+    assert.equal(status.networkReachable, true)
+    assert.equal(status.remoteReady, false)
+    assert.equal(status.remoteMethod, 'none')
+    assert.deepEqual(calls, [{ command: 'ping', args: pingArguments(address) }])
+  }
 })
 
 test('shutdown maps safe and forced choices to fixed remote commands', async () => {
