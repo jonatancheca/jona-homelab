@@ -12,7 +12,7 @@ const shutdownDialog = ref<HTMLDialogElement>()
 const editing = ref<Device | null>(null)
 const deleting = ref<Device | null>(null)
 const shutdownTarget = ref<Device | null>(null)
-const form = reactive({ name: '', mac: '', address: '', remoteMethod: 'ssh' as 'ssh' | 'companion', sshUser: '', companionCode: '' })
+const form = reactive({ name: '', mac: '', address: '', remoteMethod: 'ssh' as 'ssh' | 'companion' | 'none', sshUser: '', companionCode: '' })
 const formError = ref('')
 const deleteError = ref('')
 const shutdownError = ref('')
@@ -167,15 +167,20 @@ function dateLabel(value: string | null | undefined): string {
   return value ? new Intl.DateTimeFormat('en-GB', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(value)) : 'No packet sent yet'
 }
 
-function remoteLabel(method: Device['remoteMethod']): string { return method === 'companion' ? 'Companion' : 'SSH' }
+function remoteLabel(method: Device['remoteMethod']): string {
+  return method === 'companion' ? 'Companion' : method === 'none' ? 'Wake-on-LAN' : 'SSH'
+}
 function deviceOnline(id: string): boolean { return Boolean(statuses.value[id]?.networkReachable || statuses.value[id]?.remoteReady) }
 function statusLabel(id: string): string {
   if (refreshingStatus.value && !statuses.value[id]) return 'Checking…'
+  const device = devices.value.find(item => item.id === id)
+  if (device?.remoteMethod === 'none' && !device.address) return 'Not checked'
   return statuses.value[id] ? (deviceOnline(id) ? 'Online' : 'No response') : 'Not checked'
 }
 function remoteReadyLabel(id: string): string {
   const status = statuses.value[id]
-  return status ? `${remoteLabel(status.remoteMethod)} ${status.remoteReady ? 'ready' : 'unavailable'}` : 'Remote not checked'
+  if (!status) return 'Remote not checked'
+  return status.remoteMethod === 'none' ? 'Wake-on-LAN only' : `${remoteLabel(status.remoteMethod)} ${status.remoteReady ? 'ready' : 'unavailable'}`
 }
 function shutdownDescription(device: Device | null): string {
   return device?.remoteMethod === 'companion'
@@ -228,12 +233,13 @@ onUnmounted(() => {
                 <span class="status-pill ssh-status" :class="{ online: statuses[device.id]?.remoteReady }"><AppIcon name="network" />{{ remoteReadyLabel(device.id) }}</span>
               </div>
               <p class="mac-label">MAC ADDRESS</p><code class="mac">{{ device.mac }}</code>
-              <p v-if="device.address && (device.remoteMethod === 'companion' ? device.companionConfigured : device.sshUser)" class="remote-target">{{ device.remoteMethod === 'companion' ? `Companion · ${device.address}` : `${device.sshUser}@${device.address}` }}</p>
-              <p v-else class="remote-target missing">Edit this device to configure status and shutdown.</p>
+              <p v-if="device.remoteMethod === 'none' && device.address" class="remote-target">Ping · {{ device.address }}</p>
+              <p v-else-if="device.address && (device.remoteMethod === 'companion' ? device.companionConfigured : device.sshUser)" class="remote-target">{{ device.remoteMethod === 'companion' ? `Companion · ${device.address}` : `${device.sshUser}@${device.address}` }}</p>
+              <p v-else class="remote-target missing">{{ device.remoteMethod === 'none' ? 'Wake-on-LAN only. Add an address to check status.' : 'Edit this device to configure status and shutdown.' }}</p>
               <div class="last-sent"><AppIcon name="clock" /><span>{{ device.lastSentAt ? `Last sent: ${dateLabel(device.lastSentAt)}` : 'No packets sent' }}</span></div>
               <div class="power-actions">
                 <button class="button wake-button" :disabled="sending.has(device.id) || remaining(device.id) > 0" @click="wake(device)"><span v-if="sending.has(device.id)" class="spinner small"></span><AppIcon v-else name="power" />{{ sending.has(device.id) ? 'Sending…' : remaining(device.id) ? `Wait ${remaining(device.id)} s` : 'Wake' }}</button>
-                <button class="button shutdown-button" :disabled="!statuses[device.id]?.remoteReady || shuttingDown" @click="confirmShutdown(device)"><AppIcon name="power" /> Shut down</button>
+                <button v-if="device.remoteMethod !== 'none'" class="button shutdown-button" :disabled="!statuses[device.id]?.remoteReady || shuttingDown" @click="confirmShutdown(device)"><AppIcon name="power" /> Shut down</button>
               </div>
               <p v-if="feedback[device.id]" class="card-feedback" :class="{ failure: feedback[device.id]!.error }" :role="feedback[device.id]!.error ? 'alert' : 'status'"><AppIcon :name="feedback[device.id]!.error ? 'info' : 'check'" />{{ feedback[device.id]!.message }}</p>
             </article>
@@ -248,17 +254,18 @@ onUnmounted(() => {
     <dialog ref="formDialog" class="modal" aria-labelledby="form-title" @cancel.prevent="closeForm()">
       <form @submit.prevent="saveDevice()">
         <div class="modal-heading"><span class="device-symbol"><AppIcon name="server" /></span><button type="button" class="icon-button" aria-label="Close form" :disabled="saving" @click="closeForm()"><AppIcon name="close" /></button></div>
-        <h2 id="form-title">{{ editing ? 'Edit device' : 'Add device' }}</h2><p class="modal-intro">Add its name, Ethernet MAC address and remote shutdown method.</p>
+        <h2 id="form-title">{{ editing ? 'Edit device' : 'Add device' }}</h2><p class="modal-intro">Add its name, Ethernet MAC address and optional remote shutdown method.</p>
         <label class="field">Device name<input v-model="form.name" name="name" placeholder="e.g. Living room server" maxlength="80" required autofocus autocomplete="off" :disabled="saving" /></label>
         <label class="field">MAC address<input v-model="form.mac" name="mac" class="mac-input" placeholder="AA:BB:CC:DD:EE:FF" maxlength="17" minlength="12" required autocomplete="off" spellcheck="false" :disabled="saving" /><span>Dashes or all 12 digits are also accepted.</span></label>
-        <label class="field">Private IPv4 or machine name<input v-model="form.address" name="address" class="mac-input" placeholder="192.168.1.25 or MY-PC" maxlength="253" required autocomplete="off" spellcheck="false" :disabled="saving" /><span>Use a DHCP reservation or a local DNS/Windows machine name.</span></label>
+        <label class="field">{{ form.remoteMethod === 'none' ? 'Private IPv4 or machine name (optional)' : 'Private IPv4 or machine name' }}<input v-model="form.address" name="address" class="mac-input" placeholder="192.168.1.25 or MY-PC" maxlength="253" autocomplete="off" spellcheck="false" :required="form.remoteMethod !== 'none'" :disabled="saving" /><span>{{ form.remoteMethod === 'none' ? 'Optional. Used only to check ping status.' : 'Use a DHCP reservation or a local DNS/Windows machine name.' }}</span></label>
         <fieldset class="remote-method" :disabled="saving">
           <legend>Remote method</legend>
           <label><input v-model="form.remoteMethod" type="radio" value="ssh" /><span><strong>SSH</strong><small>Use the restricted OpenSSH account already configured on Windows.</small></span></label>
           <label><input v-model="form.remoteMethod" type="radio" value="companion" /><span><strong>Companion</strong><small>Use the Jona Homelab Windows service and tray app.</small></span></label>
+          <label><input v-model="form.remoteMethod" type="radio" value="none" /><span><strong>Wake-on-LAN only</strong><small>No Companion or SSH. An address enables ping status; remote shutdown stays unavailable.</small></span></label>
         </fieldset>
         <label v-if="form.remoteMethod === 'ssh'" class="field">SSH user<input v-model="form.sshUser" name="sshUser" placeholder="jona-homelab-remote" maxlength="32" required autocomplete="off" spellcheck="false" :disabled="saving" /><span>Dedicated Windows account configured for restricted remote commands.</span></label>
-        <label v-else class="field">Companion pairing code<input v-model="form.companionCode" name="companionCode" class="mac-input" placeholder="jhcp1_…" maxlength="49" :required="!editing || editing.remoteMethod !== 'companion'" autocomplete="off" spellcheck="false" :disabled="saving" /><span>{{ editing?.remoteMethod === 'companion' && editing.companionConfigured ? 'Already paired. Leave blank to keep the current code.' : 'Copy this code from the Companion tray app.' }}</span></label>
+        <label v-else-if="form.remoteMethod === 'companion'" class="field">Companion pairing code<input v-model="form.companionCode" name="companionCode" class="mac-input" placeholder="jhcp1_…" maxlength="49" :required="!editing || editing.remoteMethod !== 'companion'" autocomplete="off" spellcheck="false" :disabled="saving" /><span>{{ editing?.remoteMethod === 'companion' && editing.companionConfigured ? 'Already paired. Leave blank to keep the current code.' : 'Copy this code from the Companion tray app.' }}</span></label>
         <p v-if="formError" class="form-error" role="alert">{{ formError }}</p>
         <div class="modal-actions"><button type="button" class="button secondary" :disabled="saving" @click="closeForm()">Cancel</button><button type="submit" class="button primary" :disabled="saving">{{ saving ? 'Saving…' : editing ? 'Save changes' : 'Add device' }}</button></div>
       </form>

@@ -158,6 +158,7 @@ export async function sendShutdownCommand(
   companionSecret?: string,
   companionRunner: CompanionRunner = requestCompanion,
 ): Promise<void> {
+  if (device.remoteMethod === 'none') throw new AppError(409, 'Remote shutdown is not configured for this device.')
   if ((device.remoteMethod || 'ssh') === 'companion') {
     if (!companionSecret) throw new AppError(503, 'Companion shutdown is not configured on the homelab server.')
     const accepted = await companionRunner(device, companionSecret, force ? 'shutdown-force' : 'shutdown-safe')

@@ -11,12 +11,12 @@ export interface Device {
   lastSentAt: string | null
 }
 
-export type RemoteMethod = 'ssh' | 'companion'
+export type RemoteMethod = 'ssh' | 'companion' | 'none'
 
 export interface DeviceInput {
   name: string
   mac: string
-  address: string
+  address: string | null
   remoteMethod?: RemoteMethod
   sshUser: string | null
   companionCode?: string

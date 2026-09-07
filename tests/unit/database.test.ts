@@ -286,6 +286,20 @@ test('stores Companion secret privately, preserves it on blank edit and clears i
   finally { store.close() }
 })
 
+test('stores Wake-on-LAN-only devices without remote credentials and blocks shutdown', () => {
+  const store = new DeviceStore(':memory:')
+  try {
+    const device = store.create({ name: 'Wake only', mac: 'AA:BB:CC:DD:EE:12', address: null, remoteMethod: 'none', sshUser: null })
+    assert.deepEqual(store.get(device.id), device)
+    assert.equal(device.remoteMethod, 'none')
+    assert.equal(device.address, null)
+    assert.equal(device.sshUser, null)
+    assert.equal(device.companionConfigured, false)
+    assert.throws(() => store.claimShutdown(device.id), { statusCode: 409 })
+  }
+  finally { store.close() }
+})
+
 test('legacy devices require remote configuration before shutdown', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'homelab-legacy-shutdown-test-'))
   const path = join(directory, 'legacy.sqlite')

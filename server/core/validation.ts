@@ -30,10 +30,14 @@ export function parseDeviceInput(value: unknown, current?: Pick<Device, 'remoteM
   if (/[\u0000-\u001f\u007f]/.test(input.name)) {
     throw new AppError(400, 'The name contains invalid characters.')
   }
-  if (typeof input.address !== 'string' || !isPrivateIPv4OrHostname(input.address.trim())) {
+  const remoteMethod = parseRemoteMethod(input.remoteMethod, current?.remoteMethod)
+  const address = typeof input.address === 'string' ? input.address.trim() : ''
+  if (remoteMethod !== 'none' && !isPrivateIPv4OrHostname(address)) {
     throw new AppError(400, 'Enter a private IPv4 address or machine name such as 192.168.1.25 or MY-PC.')
   }
-  const remoteMethod = parseRemoteMethod(input.remoteMethod, current?.remoteMethod)
+  if (input.address !== undefined && input.address !== null && typeof input.address !== 'string') {
+    throw new AppError(400, 'Enter a private IPv4 address or machine name such as 192.168.1.25 or MY-PC.')
+  }
   let sshUser: string | null = null
   let companionCode: string | undefined
   if (remoteMethod === 'ssh') {
@@ -42,17 +46,19 @@ export function parseDeviceInput(value: unknown, current?: Pick<Device, 'remoteM
     }
     sshUser = input.sshUser.trim()
   }
-  else if (typeof input.companionCode === 'string' && input.companionCode.trim() !== '') {
-    parseCompanionCode(input.companionCode)
-    companionCode = input.companionCode.trim()
-  }
-  else if (!current || current.remoteMethod !== 'companion') {
-    throw new AppError(400, 'Enter the Companion pairing code.')
+  else if (remoteMethod === 'companion') {
+    if (typeof input.companionCode === 'string' && input.companionCode.trim() !== '') {
+      parseCompanionCode(input.companionCode)
+      companionCode = input.companionCode.trim()
+    }
+    else if (!current || current.remoteMethod !== 'companion') {
+      throw new AppError(400, 'Enter the Companion pairing code.')
+    }
   }
   return {
     name: input.name.trim(),
     mac: normalizeMac(input.mac),
-    address: input.address.trim(),
+    address: address || null,
     remoteMethod,
     sshUser,
     ...(companionCode ? { companionCode } : {}),
@@ -62,7 +68,7 @@ export function parseDeviceInput(value: unknown, current?: Pick<Device, 'remoteM
 function parseRemoteMethod(value: unknown, fallback?: RemoteMethod): RemoteMethod {
   if (value === undefined && fallback) return fallback
   if (value === undefined) return 'ssh'
-  if (value !== 'ssh' && value !== 'companion') throw new AppError(400, 'Choose SSH or Companion as the remote method.')
+  if (value !== 'ssh' && value !== 'companion' && value !== 'none') throw new AppError(400, 'Choose SSH, Companion or Wake-on-LAN only as the remote method.')
   return value
 }
 

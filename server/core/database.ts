@@ -69,7 +69,7 @@ function publicDevice(row: DeviceRow): Device {
     mac: row.mac,
     address: row.address,
     sshUser: row.sshUser,
-    remoteMethod: row.remoteMethod === 'companion' ? 'companion' : 'ssh',
+    remoteMethod: row.remoteMethod === 'companion' ? 'companion' : row.remoteMethod === 'none' ? 'none' : 'ssh',
     companionConfigured: Boolean(row.companionSecret),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
@@ -209,6 +209,7 @@ export class DeviceStore {
 
   claimShutdown(id: string, now = Date.now()): Device {
     const row = this.row(id)
+    if (row.remoteMethod === 'none') throw new AppError(409, 'Remote shutdown is not configured for this device.')
     if (!row.address) throw new AppError(409, 'Configure the device private IPv4 address or machine name first.')
     if (row.remoteMethod === 'ssh' && !row.sshUser) throw new AppError(409, 'Configure the device SSH user first.')
     if (row.remoteMethod === 'companion' && !row.companionSecret) throw new AppError(409, 'Configure the Companion pairing code first.')

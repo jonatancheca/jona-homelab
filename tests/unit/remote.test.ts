@@ -64,6 +64,16 @@ test('unconfigured legacy device is reported without executing processes', async
   assert.equal(status.remoteReady, false)
 })
 
+test('Wake-on-LAN-only status checks ping without remote commands', async () => {
+  const calls: string[] = []
+  const runner: CommandRunner = async (command) => { calls.push(command); return true }
+  const status = await checkDeviceStatus({ ...device, sshUser: null, remoteMethod: 'none' }, ssh, runner)
+  assert.equal(status.networkReachable, true)
+  assert.equal(status.remoteReady, false)
+  assert.equal(status.remoteMethod, 'none')
+  assert.deepEqual(calls, ['ping'])
+})
+
 test('shutdown maps safe and forced choices to fixed remote commands', async () => {
   const commands: string[] = []
   const runner: CommandRunner = async (command, args) => {
@@ -79,6 +89,10 @@ test('shutdown maps safe and forced choices to fixed remote commands', async () 
 test('shutdown fails closed without configuration or when SSH rejects command', async () => {
   await assert.rejects(sendShutdownCommand(device, false, null), { statusCode: 503 })
   await assert.rejects(sendShutdownCommand(device, false, ssh, async () => false), /SSH command failed/)
+})
+
+test('Wake-on-LAN-only devices reject remote shutdown', async () => {
+  await assert.rejects(sendShutdownCommand({ ...device, address: null, sshUser: null, remoteMethod: 'none' }, false, ssh), { statusCode: 409 })
 })
 
 test('Companion client signs request, verifies response and rejects altered response', async () => {

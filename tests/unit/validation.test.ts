@@ -50,6 +50,15 @@ test('validates Companion pairing codes and allows blank code only on existing C
   assert.throws(() => parseDeviceInput({ ...valid, remoteMethod: 'companion', companionCode: 'jhcp1_bad' }), { statusCode: 400 })
 })
 
+test('allows Wake-on-LAN-only devices without address or remote credentials', () => {
+  assert.deepEqual(parseDeviceInput({ name: 'Wake only', mac: valid.mac, remoteMethod: 'none' }), {
+    name: 'Wake only', mac: 'AA:BB:CC:DD:EE:FF', address: null, remoteMethod: 'none', sshUser: null,
+  })
+  assert.equal(parseDeviceInput({ name: 'Null address', mac: valid.mac, address: null, remoteMethod: 'none' }).address, null)
+  assert.equal(parseDeviceInput({ name: 'Ping only', mac: valid.mac, address: valid.address, remoteMethod: 'none' }).address, valid.address)
+  assert.throws(() => parseDeviceInput({ ...valid, remoteMethod: 'none', address: 123 }), { statusCode: 400 })
+})
+
 test('shutdown accepts one boolean and rejects extra command fields', () => {
   assert.deepEqual(parseShutdownInput({ force: false }), { force: false })
   assert.deepEqual(parseShutdownInput({ force: true }), { force: true })

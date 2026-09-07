@@ -166,6 +166,10 @@ sudo -u jona-homelab ssh -T -o BatchMode=yes -o StrictHostKeyChecking=yes -o Use
 
 La última orden debe responder `ready`. Repite la prueba para cada IP. Configura las tres variables SSH en `/etc/jona-homelab.env`, reinicia servicio y edita cada equipo desde panel para guardar IPv4 y usuario. El apagado seguro ejecuta `shutdown.exe /s /t 0`; el forzado añade `/f` y puede perder trabajo no guardado.
 
+### Solo Wake-on-LAN
+
+Si un PC no tiene Companion ni SSH, selecciona `Wake-on-LAN only` al registrarlo. Solo necesita nombre y MAC; la dirección es opcional. Si la guardas, el panel puede comprobar el ping, pero no habilita apagado remoto. Sin dirección, el equipo sigue disponible para enviarle paquetes Wake-on-LAN, sin comprobación de estado de red.
+
 ## Actualizaciones y rollback
 
 Ejecuta actualizador incluido en release activa:
@@ -215,7 +219,7 @@ Cloudflare Access debe proteger todas las rutas de negocio. El backend no valida
 | Método y ruta | Entrada / resultado |
 | --- | --- |
 | `GET /api/devices` | Lista de equipos |
-| `POST /api/devices` | Nombre, MAC, `address` IPv4 privada o nombre de máquina y método (`sshUser` o `companionCode`); 201 |
+| `POST /api/devices` | Nombre, MAC, método `ssh`, `companion` o `none`; `address` privada opcional solo con `none`; `sshUser` o `companionCode` según método; 201 |
 | `PATCH /api/devices/:id` | Campos completos; código Companion vacío conserva el existente; 200 |
 | `DELETE /api/devices/:id` | `{}`; 204 |
 | `POST /api/devices/:id/wake` | `{}`; mensaje de envío, equipo y `retryAfter` |
@@ -224,7 +228,7 @@ Cloudflare Access debe proteger todas las rutas de negocio. El backend no valida
 | `GET /api/session` | Modo `development` o `access`, sin datos de identidad |
 | `GET /api/health` | Salud mínima, sin datos privados |
 
-Los equipos contienen `id`, `name`, `mac`, `address`, `sshUser`, `remoteMethod`, `companionConfigured`, `createdAt`, `updatedAt` y `lastSentAt` (ISO UTC o `null`). El secreto Companion nunca se serializa. Filas anteriores conservan método SSH hasta editarlas. Los errores usan 400/413/415 para entrada inválida, 404 para equipo inexistente, 409 para conflictos, 429 para enfriamiento, 502 para fallo remoto y 503 cuando el transporte no está configurado. Los 429 incluyen `Retry-After`. Cooldowns de encendido y apagado persisten en SQLite. No hay reintentos automáticos.
+Los equipos contienen `id`, `name`, `mac`, `address`, `sshUser`, `remoteMethod`, `companionConfigured`, `createdAt`, `updatedAt` y `lastSentAt` (ISO UTC o `null`). `remoteMethod: "none"` significa solo Wake-on-LAN: no ejecuta SSH ni Companion y rechaza apagado remoto. El secreto Companion nunca se serializa. Filas anteriores conservan método SSH hasta editarlas. Los errores usan 400/413/415 para entrada inválida, 404 para equipo inexistente, 409 para conflictos, 429 para enfriamiento, 502 para fallo remoto y 503 cuando el transporte no está configurado. Los 429 incluyen `Retry-After`. Cooldowns de encendido y apagado persisten en SQLite. No hay reintentos automáticos.
 
 ## Fuentes técnicas
 
