@@ -215,7 +215,7 @@ Cloudflare Access debe proteger todas las rutas de negocio. El backend no valida
 | Método y ruta | Entrada / resultado |
 | --- | --- |
 | `GET /api/devices` | Lista de equipos |
-| `POST /api/devices` | Nombre, MAC, `address` IPv4 privada y método (`sshUser` o `companionCode`); 201 |
+| `POST /api/devices` | Nombre, MAC, `address` IPv4 privada o nombre de máquina y método (`sshUser` o `companionCode`); 201 |
 | `PATCH /api/devices/:id` | Campos completos; código Companion vacío conserva el existente; 200 |
 | `DELETE /api/devices/:id` | `{}`; 204 |
 | `POST /api/devices/:id/wake` | `{}`; mensaje de envío, equipo y `retryAfter` |

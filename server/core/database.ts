@@ -209,7 +209,7 @@ export class DeviceStore {
 
   claimShutdown(id: string, now = Date.now()): Device {
     const row = this.row(id)
-    if (!row.address) throw new AppError(409, 'Configure the device private IPv4 address first.')
+    if (!row.address) throw new AppError(409, 'Configure the device private IPv4 address or machine name first.')
     if (row.remoteMethod === 'ssh' && !row.sshUser) throw new AppError(409, 'Configure the device SSH user first.')
     if (row.remoteMethod === 'companion' && !row.companionSecret) throw new AppError(409, 'Configure the Companion pairing code first.')
     const result = this.database.prepare(`UPDATE devices SET lastShutdownAttemptMs = ?

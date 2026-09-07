@@ -21,7 +21,7 @@ export function parseDeviceInput(value: unknown, current?: Pick<Device, 'remoteM
   }
   const input = value as Record<string, unknown>
   if (Object.keys(input).some(key => !['name', 'mac', 'address', 'sshUser', 'remoteMethod', 'companionCode'].includes(key))) {
-    throw new AppError(400, 'Only name, MAC, IPv4 address, SSH user, remote method and Companion code are allowed.')
+    throw new AppError(400, 'Only name, MAC, address, SSH user, remote method and Companion code are allowed.')
   }
   if (typeof input.name !== 'string' || !input.name.trim() || input.name.trim().length > 80) {
     throw new AppError(400, 'The name must be between 1 and 80 characters.')
@@ -30,8 +30,8 @@ export function parseDeviceInput(value: unknown, current?: Pick<Device, 'remoteM
   if (/[\u0000-\u001f\u007f]/.test(input.name)) {
     throw new AppError(400, 'The name contains invalid characters.')
   }
-  if (typeof input.address !== 'string' || !isPrivateIPv4(input.address.trim())) {
-    throw new AppError(400, 'Enter a private IPv4 address such as 192.168.1.25.')
+  if (typeof input.address !== 'string' || !isPrivateIPv4OrHostname(input.address.trim())) {
+    throw new AppError(400, 'Enter a private IPv4 address or machine name such as 192.168.1.25 or MY-PC.')
   }
   const remoteMethod = parseRemoteMethod(input.remoteMethod, current?.remoteMethod)
   let sshUser: string | null = null
@@ -88,6 +88,12 @@ function isPrivateIPv4(value: string): boolean {
   if (!isIPv4(value)) return false
   const [first, second] = value.split('.').map(Number)
   return first === 10 || (first === 172 && second! >= 16 && second! <= 31) || (first === 192 && second === 168)
+}
+
+function isPrivateIPv4OrHostname(value: string): boolean {
+  if (isIPv4(value)) return isPrivateIPv4(value)
+  if (value.length > 253 || /^(?:\d+\.)+\d+$/.test(value)) return false
+  return value.split('.').every(label => /^(?:[a-z\d](?:[a-z\d-]{0,61}[a-z\d])?)$/i.test(label))
 }
 
 export function parseShutdownInput(value: unknown): { force: boolean } {

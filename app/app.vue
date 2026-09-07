@@ -210,7 +210,7 @@ onUnmounted(() => {
             <div class="section-title"><h1 id="devices-heading">My devices</h1><span class="count">{{ devices.length }}</span></div>
             <div class="section-actions">
               <button class="button secondary refresh-button" :disabled="refreshingStatus || !devices.length" @click="refreshStatuses()"><span v-if="refreshingStatus" class="spinner small"></span><AppIcon v-else name="refresh" /> Refresh status</button>
-              <label class="search"><AppIcon name="search" /><input v-model="search" type="search" aria-label="Search devices" placeholder="Search name, MAC or IP…" /></label>
+              <label class="search"><AppIcon name="search" /><input v-model="search" type="search" aria-label="Search devices" placeholder="Search name, MAC or address…" /></label>
               <button class="button primary add-button" @click="openForm()"><AppIcon name="plus" /> Add device</button>
             </div>
           </div>
@@ -251,7 +251,7 @@ onUnmounted(() => {
         <h2 id="form-title">{{ editing ? 'Edit device' : 'Add device' }}</h2><p class="modal-intro">Add its name, Ethernet MAC address and remote shutdown method.</p>
         <label class="field">Device name<input v-model="form.name" name="name" placeholder="e.g. Living room server" maxlength="80" required autofocus autocomplete="off" :disabled="saving" /></label>
         <label class="field">MAC address<input v-model="form.mac" name="mac" class="mac-input" placeholder="AA:BB:CC:DD:EE:FF" maxlength="17" minlength="12" required autocomplete="off" spellcheck="false" :disabled="saving" /><span>Dashes or all 12 digits are also accepted.</span></label>
-        <label class="field">Private IPv4 address<input v-model="form.address" name="address" class="mac-input" placeholder="192.168.1.25" maxlength="15" required autocomplete="off" spellcheck="false" :disabled="saving" /><span>Use a DHCP reservation so this address stays assigned to the device.</span></label>
+        <label class="field">Private IPv4 or machine name<input v-model="form.address" name="address" class="mac-input" placeholder="192.168.1.25 or MY-PC" maxlength="253" required autocomplete="off" spellcheck="false" :disabled="saving" /><span>Use a DHCP reservation or a local DNS/Windows machine name.</span></label>
         <fieldset class="remote-method" :disabled="saving">
           <legend>Remote method</legend>
           <label><input v-model="form.remoteMethod" type="radio" value="ssh" /><span><strong>SSH</strong><small>Use the restricted OpenSSH account already configured on Windows.</small></span></label>

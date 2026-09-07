@@ -23,13 +23,18 @@ test('validates names and rejects unexpected fields', () => {
   }
 })
 
-test('accepts private IPv4 and safe SSH users but rejects command injection and public targets', () => {
-  for (const address of ['10.0.0.4', '172.16.0.4', '172.31.255.254', '192.168.50.4']) {
+test('accepts private IPv4 or safe machine hostnames but rejects command injection and public targets', () => {
+  for (const address of ['10.0.0.4', '172.16.0.4', '172.31.255.254', '192.168.50.4', 'MY-PC', 'my-pc.local', 'server01']) {
     assert.equal(parseDeviceInput({ ...valid, address }).address, address)
   }
   for (const value of [
     { ...valid, address: '8.8.8.8' },
+    { ...valid, address: '999.999.999.999' },
     { ...valid, address: '192.168.1.25;shutdown' },
+    { ...valid, address: 'my pc' },
+    { ...valid, address: '-my-pc' },
+    { ...valid, address: 'my-pc-' },
+    { ...valid, address: 'my_pc.local' },
     { ...valid, sshUser: '-oProxyCommand=calc' },
     { ...valid, sshUser: 'domain\\user' },
   ]) assert.throws(() => parseDeviceInput(value), { statusCode: 400 })

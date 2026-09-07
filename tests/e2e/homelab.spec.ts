@@ -6,6 +6,15 @@ test('uses a dark-only theme', async ({ page }) => {
   await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(16, 23, 19)')
 })
 
+test('removes Access indicator and its header space on mobile', async ({ page }) => {
+  await page.goto('/')
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await expect(page.locator('.topbar')).toHaveCSS('display', 'flex')
+  await page.setViewportSize({ width: 390, height: 900 })
+  await expect(page.locator('.topbar')).toHaveCSS('display', 'none')
+  await expect(page.locator('.access-badge')).toBeHidden()
+})
+
 test('shows focused device workspace without promotional navigation', async ({ page, request }) => {
   const headers = { 'content-type': 'application/json' }
   const name = 'Issue four server'
@@ -42,7 +51,7 @@ test('register, reject duplicate, edit, wake, search, reload and delete', async 
   const form = page.getByRole('dialog', { name: 'Add device' })
   await form.getByRole('textbox', { name: 'Device name' }).fill('Test server')
   await form.getByRole('textbox', { name: 'MAC address' }).fill('aa-bb-cc-dd-ee-ff')
-  await form.getByRole('textbox', { name: 'Private IPv4 address' }).fill('192.168.255.10')
+  await form.getByRole('textbox', { name: 'Private IPv4 or machine name' }).fill('MY-DESKTOP')
   await form.getByRole('textbox', { name: 'SSH user' }).fill('jona-homelab-remote')
   await form.getByRole('button', { name: 'Add device', exact: true }).click()
   await expect(form).not.toBeVisible()
@@ -51,7 +60,7 @@ test('register, reject duplicate, edit, wake, search, reload and delete', async 
   await page.getByRole('button', { name: 'Add device', exact: true }).click()
   await form.getByRole('textbox', { name: 'Device name' }).fill('Duplicate')
   await form.getByRole('textbox', { name: 'MAC address' }).fill('aabbccddeeff')
-  await form.getByRole('textbox', { name: 'Private IPv4 address' }).fill('192.168.255.11')
+  await form.getByRole('textbox', { name: 'Private IPv4 or machine name' }).fill('192.168.255.11')
   await form.getByRole('textbox', { name: 'SSH user' }).fill('jona-homelab-remote')
   await form.getByRole('button', { name: 'Add device', exact: true }).click()
   await expect(form.getByRole('alert')).toContainText('already registered')

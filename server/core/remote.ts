@@ -34,7 +34,7 @@ export function sshArguments(
   ssh: NonNullable<Settings['ssh']>,
   command: 'status' | 'shutdown-safe' | 'shutdown-force',
 ): string[] {
-  if (!device.address || !device.sshUser) throw new AppError(409, 'Configure the device IPv4 address and SSH user first.')
+  if (!device.address || !device.sshUser) throw new AppError(409, 'Configure the device address and SSH user first.')
   return [
     '-T',
     '-o', 'BatchMode=yes',
@@ -75,7 +75,7 @@ function equalSignature(actual: string | null, expected: string): boolean {
 }
 
 export async function requestCompanion(device: Device, secret: string, command: CompanionCommand, fetcher: typeof fetch = fetch, now = Date.now): Promise<boolean> {
-  if (!device.address) throw new AppError(409, 'Configure the device private IPv4 address first.')
+  if (!device.address) throw new AppError(409, 'Configure the device private IPv4 address or machine name first.')
   const path = command === 'status' ? '/v1/status' : '/v1/shutdown'
   const method = command === 'status' ? 'GET' : 'POST'
   const body = command === 'status' ? '' : JSON.stringify({ force: command === 'shutdown-force' })
