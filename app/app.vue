@@ -246,21 +246,23 @@ onUnmounted(() => {
       </main>
     </div>
 
-    <dialog ref="formDialog" class="modal" aria-labelledby="form-title" @cancel.prevent="closeForm()">
+    <dialog ref="formDialog" class="modal device-form" aria-labelledby="form-title" @cancel.prevent="closeForm()">
       <form @submit.prevent="saveDevice()">
         <div class="modal-heading"><span class="device-symbol"><AppIcon name="server" /></span><button type="button" class="icon-button" aria-label="Close form" :disabled="saving" @click="closeForm()"><AppIcon name="close" /></button></div>
         <h2 id="form-title">{{ editing ? 'Edit device' : 'Add device' }}</h2><p class="modal-intro">Add its name, Ethernet MAC address and optional remote shutdown method.</p>
-        <label class="field">Device name<input v-model="form.name" name="name" placeholder="e.g. Living room server" maxlength="80" required autofocus autocomplete="off" :disabled="saving" /></label>
-        <label class="field">MAC address<input v-model="form.mac" name="mac" class="mac-input" placeholder="AA:BB:CC:DD:EE:FF" maxlength="17" minlength="12" required autocomplete="off" spellcheck="false" :disabled="saving" /><span>Dashes or all 12 digits are also accepted.</span></label>
-        <label class="field">{{ form.remoteMethod === 'none' ? 'Private IPv4 or machine name (optional)' : 'Private IPv4 or machine name' }}<input v-model="form.address" name="address" class="mac-input" placeholder="192.168.1.25 or MY-PC" maxlength="253" autocomplete="off" spellcheck="false" :required="form.remoteMethod !== 'none'" :disabled="saving" /><span>{{ form.remoteMethod === 'none' ? 'Optional. Used only to check ping status.' : 'Use a DHCP reservation or a local DNS/Windows machine name.' }}</span></label>
-        <fieldset class="remote-method" :disabled="saving">
-          <legend>Remote method</legend>
-          <label><input v-model="form.remoteMethod" type="radio" value="ssh" /><span><strong>SSH</strong><small>Use the restricted OpenSSH account already configured on Windows.</small></span></label>
-          <label><input v-model="form.remoteMethod" type="radio" value="companion" /><span><strong>Companion</strong><small>Use the Jona Homelab Windows service and tray app.</small></span></label>
-          <label><input v-model="form.remoteMethod" type="radio" value="none" /><span><strong>Wake-on-LAN only</strong><small>No Companion or SSH. An address enables ping status; remote shutdown stays unavailable.</small></span></label>
-        </fieldset>
-        <label v-if="form.remoteMethod === 'ssh'" class="field">SSH user<input v-model="form.sshUser" name="sshUser" placeholder="jona-homelab-remote" maxlength="32" required autocomplete="off" spellcheck="false" :disabled="saving" /><span>Dedicated Windows account configured for restricted remote commands.</span></label>
-        <label v-else-if="form.remoteMethod === 'companion'" class="field">Companion pairing code<input v-model="form.companionCode" name="companionCode" class="mac-input" placeholder="jhcp1_…" maxlength="49" :required="!editing || editing.remoteMethod !== 'companion'" autocomplete="off" spellcheck="false" :disabled="saving" /><span>{{ editing?.remoteMethod === 'companion' && editing.companionConfigured ? 'Already paired. Leave blank to keep the current code.' : 'Copy this code from the Companion tray app.' }}</span></label>
+        <div class="device-fields">
+          <label class="field">Device name<input v-model="form.name" name="name" placeholder="e.g. Living room server" maxlength="80" required autofocus autocomplete="off" :disabled="saving" /></label>
+          <label class="field">MAC address<input v-model="form.mac" name="mac" class="mac-input" placeholder="AA:BB:CC:DD:EE:FF" maxlength="17" minlength="12" required autocomplete="off" spellcheck="false" :disabled="saving" /><span>Dashes or all 12 digits are also accepted.</span></label>
+          <label class="field">{{ form.remoteMethod === 'none' ? 'Private IPv4 or machine name (optional)' : 'Private IPv4 or machine name' }}<input v-model="form.address" name="address" class="mac-input" placeholder="192.168.1.25 or MY-PC" maxlength="253" autocomplete="off" spellcheck="false" :required="form.remoteMethod !== 'none'" :disabled="saving" /><span>{{ form.remoteMethod === 'none' ? 'Optional. Used only to check ping status.' : 'Use a DHCP reservation or a local DNS/Windows machine name.' }}</span></label>
+          <label v-if="form.remoteMethod === 'ssh'" class="field">SSH user<input v-model="form.sshUser" name="sshUser" placeholder="jona-homelab-remote" maxlength="32" required autocomplete="off" spellcheck="false" :disabled="saving" /><span>Dedicated Windows account configured for restricted remote commands.</span></label>
+          <label v-else-if="form.remoteMethod === 'companion'" class="field">Companion pairing code<input v-model="form.companionCode" name="companionCode" class="mac-input" placeholder="jhcp1_…" maxlength="49" :required="!editing || editing.remoteMethod !== 'companion'" autocomplete="off" spellcheck="false" :disabled="saving" /><span>{{ editing?.remoteMethod === 'companion' && editing.companionConfigured ? 'Already paired. Leave blank to keep the current code.' : 'Copy this code from the Companion tray app.' }}</span></label>
+          <fieldset class="remote-method" :disabled="saving">
+            <legend>Remote method</legend>
+            <label><input v-model="form.remoteMethod" type="radio" value="ssh" /><span><strong>SSH</strong><small>Use the restricted OpenSSH account already configured on Windows.</small></span></label>
+            <label><input v-model="form.remoteMethod" type="radio" value="companion" /><span><strong>Companion</strong><small>Use the Jona Homelab Windows service and tray app.</small></span></label>
+            <label><input v-model="form.remoteMethod" type="radio" value="none" /><span><strong>Wake-on-LAN only</strong><small>No Companion or SSH. An address enables ping status; remote shutdown stays unavailable.</small></span></label>
+          </fieldset>
+        </div>
         <p v-if="formError" class="form-error" role="alert">{{ formError }}</p>
         <div class="modal-actions"><button type="button" class="button secondary" :disabled="saving" @click="closeForm()">Cancel</button><button type="submit" class="button primary" :disabled="saving">{{ saving ? 'Saving…' : editing ? 'Save changes' : 'Add device' }}</button></div>
       </form>
