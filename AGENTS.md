@@ -21,3 +21,8 @@
 - No permitas que Nuxt cambie silenciosamente al puerto 3001.
 - Detén únicamente procesos iniciados durante la tarea.
 - Para cambios responsive del editor, valida 320 px y 390 px sin overflow horizontal.
+
+## Prueba manual opcional
+
+- Con autorización del usuario para contactar hardware local, `haleycheca10` es nombre de máquina de prueba para ping: `ping.exe -n 1 -w 2000 haleycheca10`.
+- Para un dispositivo `Wake-on-LAN only` con dirección `haleycheca10`, confirma ping/`Online`, sin SSH, Companion ni apagado remoto. Un fallo ICMP no confirma apagado.
