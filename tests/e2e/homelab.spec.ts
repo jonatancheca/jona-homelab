@@ -1,5 +1,11 @@
 import { test, expect } from '@playwright/test'
 
+test('uses a dark-only theme', async ({ page }) => {
+  await page.goto('/')
+  await expect(page.locator('html')).toHaveCSS('color-scheme', 'dark')
+  await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(16, 23, 19)')
+})
+
 test('shows focused device workspace without promotional navigation', async ({ page, request }) => {
   const headers = { 'content-type': 'application/json' }
   const name = 'Issue four server'

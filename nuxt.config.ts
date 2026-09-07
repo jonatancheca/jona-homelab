@@ -22,7 +22,7 @@ export default defineNuxtConfig({
       meta: [
         { name: 'description', content: 'Your network, one tap away. Private Wake-on-LAN panel.' },
         { name: 'robots', content: 'noindex, nofollow' },
-        { name: 'theme-color', content: '#f6f7f9' },
+        { name: 'theme-color', content: '#101713' },
       ],
       link: [{ rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg' }],
     },
