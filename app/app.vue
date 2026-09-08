@@ -223,14 +223,14 @@ onUnmounted(() => {
           <div v-else class="device-grid">
             <article v-for="device in filtered" :key="device.id" class="device-card" :aria-label="device.name">
               <div class="card-top"><span class="device-symbol"><AppIcon name="server" /></span><strong class="device-name">{{ device.name }}</strong><div class="card-tools"><button class="icon-button" :aria-label="`Edit ${device.name}`" :disabled="sending.has(device.id)" @click="openForm(device)"><AppIcon name="edit" /></button><button class="icon-button danger-hover" :aria-label="`Delete ${device.name}`" :disabled="sending.has(device.id)" @click="confirmDelete(device)"><AppIcon name="trash" /></button></div></div>
-              <div class="device-status" :aria-label="`Status: ${statusLabel(device.id)}`">
+              <div v-if="device.remoteMethod !== 'none' || device.address" class="device-status" :aria-label="`Status: ${statusLabel(device.id)}`">
                 <span class="status-pill" :class="{ online: deviceOnline(device.id), offline: statuses[device.id] && !deviceOnline(device.id) }"><span class="status-dot"></span>{{ statusLabel(device.id) }}</span>
                 <span class="status-pill ssh-status" :class="{ online: statuses[device.id]?.remoteReady }"><AppIcon name="network" />{{ remoteReadyLabel(device.id) }}</span>
               </div>
               <p class="mac-label">MAC ADDRESS</p><code class="mac">{{ device.mac }}</code>
               <p v-if="device.remoteMethod === 'none' && device.address" class="remote-target">Ping · {{ device.address }}</p>
               <p v-else-if="device.address && (device.remoteMethod === 'companion' ? device.companionConfigured : device.sshUser)" class="remote-target">{{ device.remoteMethod === 'companion' ? `Companion · ${device.address}` : `${device.sshUser}@${device.address}` }}</p>
-              <p v-else class="remote-target missing">{{ device.remoteMethod === 'none' ? 'Wake-on-LAN only. Add an address to check status.' : 'Edit this device to configure status and shutdown.' }}</p>
+              <p v-else-if="device.remoteMethod !== 'none'" class="remote-target missing">Edit this device to configure status and shutdown.</p>
               <div class="last-sent"><AppIcon name="clock" /><span>{{ device.lastSentAt ? `Last sent: ${dateLabel(device.lastSentAt)}` : 'No packets sent' }}</span></div>
               <div class="power-actions">
                 <button class="button wake-button" :disabled="sending.has(device.id) || remaining(device.id) > 0" @click="wake(device)"><span v-if="sending.has(device.id)" class="spinner small"></span><AppIcon v-else name="power" />{{ sending.has(device.id) ? 'Sending…' : remaining(device.id) ? `Wait ${remaining(device.id)} s` : 'Wake' }}</button>

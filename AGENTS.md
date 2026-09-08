@@ -2,8 +2,8 @@
 
 - Sé muy escueto.
 - Usa siempre la skill `/caveman`.
-- Pregunta las dudas antes de empezar.
-- Cuando pida hacer una issue, haz commit, push y ciérrala al terminar.
+- Pregunta solo dudas que cambien materialmente el alcance.
+- "Haz la issue N" autoriza inspección, implementación, validación, commit, push y cierre; no pidas confirmación adicional.
 - Trabaja siempre en la rama actual. Crea o cambia de rama solo cuando se pida expresamente.
 
 
