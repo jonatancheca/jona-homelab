@@ -35,18 +35,13 @@ const (
 	ninSelect        = 0x0400
 	ninKeySelect     = 0x0401
 
-	wsCaption      = 0x00C00000
-	wsSysMenu      = 0x00080000
-	wsMinimizeBox  = 0x00020000
-	wsChild        = 0x40000000
-	wsVisible      = 0x10000000
-	wsTabStop      = 0x00010000
-	wsExClientEdge = 0x00000200
+	wsCaption     = 0x00C00000
+	wsSysMenu     = 0x00080000
+	wsMinimizeBox = 0x00020000
+	wsChild       = 0x40000000
+	wsVisible     = 0x10000000
+	wsTabStop     = 0x00010000
 
-	ssLeft        = 0x00000000
-	ssCenter      = 0x00000001
-	bsPushButton  = 0x00000000
-	bsGroupBox    = 0x00000007
 	esReadOnly    = 0x0800
 	esAutoHScroll = 0x0080
 
@@ -59,10 +54,8 @@ const (
 	mbIconWarning = 0x00000030
 	idYes         = 6
 
-	colorWindow     = 5
-	colorWindowText = 8
-	transparent     = 1
-	defaultGuiFont  = 17
+	transparent    = 1
+	defaultGuiFont = 17
 
 	nifMessage         = 0x00000001
 	nifIcon            = 0x00000002
@@ -78,7 +71,6 @@ const (
 	tpmRightButton = 0x00000002
 
 	cfUnicodeText = 13
-	gmMemory      = 0x00000002
 	gmemMoveable  = 0x00000002
 
 	idCopy    = 1001
@@ -86,6 +78,7 @@ const (
 	idRefresh = 1003
 	idUpdate  = 1004
 	idExit    = 1005
+	idCode    = 1006
 )
 
 type trayEventKind uint8
@@ -128,7 +121,6 @@ var (
 	procSetClipboardData    = user32.NewProc("SetClipboardData")
 	procLoadIcon            = user32.NewProc("LoadIconW")
 	procLoadCursor          = user32.NewProc("LoadCursorW")
-	procGetSysColorBrush    = user32.NewProc("GetSysColorBrush")
 	procShellNotifyIcon     = shell32.NewProc("Shell_NotifyIconW")
 	procGetModuleHandle     = kernel32.NewProc("GetModuleHandleW")
 	procGlobalAlloc         = kernel32.NewProc("GlobalAlloc")
@@ -197,10 +189,12 @@ type trayApplication struct {
 	instance uintptr
 	icon     notifyIconData
 	font     uintptr
+	theme    trayTheme
 	status   windows.HWND
 	code     windows.HWND
 	lastCall windows.HWND
 	details  windows.HWND
+	version  windows.HWND
 	copy     windows.HWND
 	rotate   windows.HWND
 	refresh  windows.HWND
@@ -213,6 +207,9 @@ type trayApplication struct {
 func runTray() error {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
+	// Windows handles scaling when the window moves to a different monitor.
+	previousDPI, _, _ := procSetThreadDpiAwarenessContext.Call(^uintptr(1))
+	defer procSetThreadDpiAwarenessContext.Call(previousDPI)
 	mutexName, _ := windows.UTF16PtrFromString(`Global\JonaHomelabCompanionTray`)
 	mutex, mutexErr := windows.CreateMutex(nil, false, mutexName)
 	if mutexErr == windows.ERROR_ALREADY_EXISTS {
@@ -223,6 +220,7 @@ func runTray() error {
 	}
 	defer windows.CloseHandle(mutex)
 	tray := &trayApplication{}
+	defer tray.theme.close()
 	activeTray = tray
 	defer func() { activeTray = nil }()
 	if err := tray.create(); err != nil {
@@ -239,64 +237,67 @@ func showTrayError(err error) {
 }
 
 func (t *trayApplication) create() error {
+	t.theme.init()
 	instance, _, _ := procGetModuleHandle.Call(0)
 	t.instance = instance
 	className := utf16(windowClassName)
 	icon := loadSystemIcon()
 	class := nativeClass{
-		Size:       uint32(unsafe.Sizeof(nativeClass{})),
-		WndProc:    windows.NewCallback(windowProc),
-		Instance:   instance,
-		Icon:       icon,
-		Cursor:     loadSystemCursor(),
-		Background: sysColorBrush(colorWindow),
-		ClassName:  uintptr(unsafe.Pointer(className)),
-		SmallIcon:  icon,
+		Size:      uint32(unsafe.Sizeof(nativeClass{})),
+		WndProc:   windows.NewCallback(windowProc),
+		Instance:  instance,
+		Icon:      icon,
+		Cursor:    loadSystemCursor(),
+		ClassName: uintptr(unsafe.Pointer(className)),
+		SmallIcon: icon,
 	}
 	if result, _, callErr := procRegisterClassEx.Call(uintptr(unsafe.Pointer(&class))); result == 0 && callErr != windows.ERROR_CLASS_ALREADY_EXISTS {
 		return fmt.Errorf("register tray window: %w", callErr)
 	}
-	t.hwnd = windows.HWND(createWindow(className, utf16(displayName), wsCaption|wsSysMenu|wsMinimizeBox, 0, 0, 510, 470, 0, t.instance))
+	style := uint32(wsCaption | wsSysMenu | wsMinimizeBox | wsClipChildren)
+	rect := nativeRect{Right: int32(t.theme.px(660)), Bottom: int32(t.theme.px(630))}
+	procAdjustWindowRectExForDpi.Call(uintptr(unsafe.Pointer(&rect)), uintptr(style), 0, 0, uintptr(t.theme.dpi))
+	t.hwnd = windows.HWND(createWindow(className, utf16(displayName), style, 0x80000000, 0x80000000, int(rect.Right-rect.Left), int(rect.Bottom-rect.Top), 0, t.instance))
 	if t.hwnd == 0 {
 		return errors.New("create tray window failed")
 	}
-	t.font = stockFont()
+	t.font = t.theme.body
+	t.theme.applyCaption(t.hwnd)
 	t.createControls()
 	t.addIcon(icon)
 	return nil
 }
 
 func (t *trayApplication) createControls() {
-	t.newStatic("JONA HOMELAB COMPANION", 28, 22, 440, 28, 18, ssLeft)
-	t.newStatic("Private LAN control, protected by your pairing code", 30, 52, 440, 20, 0, ssLeft)
-	t.status = t.newStatic("● Connecting to service…", 30, 87, 440, 25, 1, ssLeft)
-	t.newControl("BUTTON", "Pairing", wsChild|wsVisible|bsGroupBox, 0, 18, 110, 474, 101, 0)
-	t.newStatic("PAIRING CODE", 30, 128, 440, 20, 0, ssLeft)
-	t.code = t.newControl("EDIT", "Loading…", wsChild|wsVisible|wsTabStop|esReadOnly|esAutoHScroll, wsExClientEdge, 30, 151, 440, 34, idCopy)
-	t.newStatic("Copy this code into the Companion device editor. Keep it private.", 30, 190, 440, 20, 0, ssLeft)
-	t.newControl("BUTTON", "Server activity", wsChild|wsVisible|bsGroupBox, 0, 18, 211, 474, 90, 0)
-	t.newStatic("SERVER ACTIVITY", 30, 226, 440, 20, 0, ssLeft)
-	t.lastCall = t.newStatic("Last server call: Never", 30, 249, 440, 24, 0, ssLeft)
-	t.details = t.newStatic("API 47654 · discovering network…", 30, 275, 440, 24, 0, ssLeft)
-	t.copy = t.newControl("BUTTON", "Copy pairing code", wsChild|wsVisible|wsTabStop|bsPushButton, 0, 30, 319, 150, 34, idCopy)
-	t.rotate = t.newControl("BUTTON", "Rotate code", wsChild|wsVisible|wsTabStop|bsPushButton, 0, 190, 319, 125, 34, idRotate)
-	t.refresh = t.newControl("BUTTON", "Refresh", wsChild|wsVisible|wsTabStop|bsPushButton, 0, 325, 319, 70, 34, idRefresh)
-	t.update = t.newControl("BUTTON", "Check for updates", wsChild|wsVisible|wsTabStop|bsPushButton, 0, 30, 365, 170, 30, idUpdate)
-	t.newControl("BUTTON", "Close", wsChild|wsVisible|wsTabStop|bsPushButton, 0, 400, 365, 70, 30, idExit)
-	for _, control := range []windows.HWND{t.status, t.code, t.lastCall, t.details, t.copy, t.rotate, t.refresh, t.update} {
-		if control != 0 && t.font != 0 {
-			procSendMessage.Call(uintptr(control), wmSetFont, t.font, 1)
-		}
-	}
-}
+	t.label("JONA HOMELAB", 96, 28, 440, 18, t.theme.caption, trayMuted, trayBackground)
+	t.label("Companion", 94, 49, 400, 36, t.theme.title, trayText, trayBackground)
+	t.label("Your PC, connected to your homelab.", 32, 94, 460, 22, t.font, trayMuted, trayBackground)
+	t.status = t.newControl("STATIC", "Connecting to service", wsChild|wsVisible|ssOwnerDraw, 0, 32, 124, 224, 30, 0)
+	t.refresh = t.button("Refresh", 516, 120, 112, 38, idRefresh, trayBackground)
 
-func (t *trayApplication) newStatic(text string, x, y, width, height, _ int, alignment uint32) windows.HWND {
-	style := wsChild | wsVisible | alignment
-	return t.newControl("STATIC", text, style, 0, x, y, width, height, 0)
+	t.label("Pair this PC", 56, 196, 520, 26, t.theme.heading, trayText, traySurface)
+	t.label("Paste this code into your device's Companion settings.", 56, 228, 548, 20, t.font, trayMuted, traySurface)
+	t.label("PAIRING CODE", 56, 261, 520, 16, t.theme.caption, trayMuted, traySurface)
+	t.code = t.newControl("EDIT", "Waiting for service...", wsChild|wsVisible|wsTabStop|esReadOnly|esAutoHScroll, 0, 70, 295, 520, 22, idCode)
+	t.theme.controls[t.code] = trayControlStyle{background: trayInput, foreground: trayText}
+	procSendMessage.Call(uintptr(t.code), wmSetFont, t.theme.mono, 1)
+	t.copy = t.button("Copy pairing code", 56, 338, 184, 40, idCopy, traySurface)
+	t.rotate = t.button("Rotate code", 252, 338, 138, 40, idRotate, traySurface)
+	t.label("Keep it private. This code grants control of this PC.", 56, 390, 548, 18, t.theme.small, trayMuted, traySurface)
+
+	t.label("Server activity", 56, 452, 250, 24, t.theme.heading, trayText, traySurface)
+	t.lastCall = t.label("Last server call: Never", 56, 486, 548, 22, t.font, trayText, traySurface)
+	t.details = t.label("Discovering local network...", 56, 518, 548, 20, t.theme.small, trayMuted, traySurface)
+
+	t.update = t.button("Check for updates", 32, 574, 176, 38, idUpdate, trayBackground)
+	t.version = t.label("Version —", 224, 585, 260, 18, t.theme.small, trayMuted, trayBackground)
+	t.button("Exit tray", 516, 574, 112, 38, idExit, trayBackground)
 }
 
 func (t *trayApplication) newControl(class, text string, style, extended uint32, x, y, width, height int, id int) windows.HWND {
-	return windows.HWND(createWindowEx(extended, utf16(class), utf16(text), style, x, y, width, height, t.hwnd, uintptr(id), t.instance))
+	control := windows.HWND(createWindowEx(extended, utf16(class), utf16(text), style, t.theme.px(x), t.theme.px(y), t.theme.px(width), t.theme.px(height), t.hwnd, uintptr(id), t.instance))
+	procSendMessage.Call(uintptr(control), wmSetFont, t.font, 1)
+	return control
 }
 
 func (t *trayApplication) addIcon(icon uintptr) {
@@ -322,6 +323,9 @@ func (t *trayApplication) messageLoop() error {
 		if result == 0 {
 			return nil
 		}
+		if handled, _, _ := procIsDialogMessage.Call(uintptr(t.hwnd), uintptr(unsafe.Pointer(&message))); handled != 0 {
+			continue
+		}
 		procTranslateMessage.Call(uintptr(unsafe.Pointer(&message)))
 		procDispatchMessage.Call(uintptr(unsafe.Pointer(&message)))
 	}
@@ -332,6 +336,9 @@ func (t *trayApplication) windowProc(hwnd windows.HWND, message uint32, wParam, 
 	case wmCreate:
 		return 0
 	case wmCommand:
+		if windows.HWND(lParam) == t.code && (highWord(wParam) == 0x100 || highWord(wParam) == 0x200) {
+			procInvalidateRect.Call(uintptr(hwnd), 0, 0)
+		}
 		if highWord(wParam) == 0 {
 			t.command(int(lowWord(wParam)))
 		}
@@ -347,10 +354,21 @@ func (t *trayApplication) windowProc(hwnd windows.HWND, message uint32, wParam, 
 	case wmAppResult:
 		t.finishAction()
 		return 0
-	case wmCtlColorStatic:
-		procSetTextColor.Call(wParam, 0x003F4A5C)
-		procSetBkMode.Call(wParam, transparent)
-		return sysColorBrush(colorWindow)
+	case wmPaint:
+		t.paint()
+		return 0
+	case wmEraseBkgnd:
+		return 1
+	case wmDrawItem:
+		var item nativeDrawItem
+		procRtlMoveMemory.Call(uintptr(unsafe.Pointer(&item)), lParam, unsafe.Sizeof(item))
+		t.drawControl(&item)
+		return 1
+	case wmCtlColorStatic, wmCtlColorEdit:
+		style := t.theme.controls[windows.HWND(lParam)]
+		procSetTextColor.Call(wParam, colorRef(style.foreground))
+		procSetBkColor.Call(wParam, colorRef(style.background))
+		return t.theme.brush(style.background)
 	case wmClose:
 		procShowWindow.Call(uintptr(hwnd), swHide)
 		return 0
@@ -396,7 +414,7 @@ func (t *trayApplication) startAction(action string) {
 	}
 	t.busy = true
 	t.mu.Unlock()
-	setWindowText(t.status, "● Connecting to service…")
+	t.setStatus("Connecting to service", trayStatusPending)
 	for _, button := range []windows.HWND{t.copy, t.rotate, t.refresh, t.update} {
 		procEnableWindow.Call(uintptr(button), 0)
 	}
@@ -442,7 +460,7 @@ func (t *trayApplication) finishAction() {
 		return
 	}
 	if result.err != nil {
-		setWindowText(t.status, "● Service unavailable")
+		t.setStatus("Service unavailable", trayStatusError)
 		messageBox(t.hwnd, result.err.Error(), displayName, mbOK|mbIconError)
 		return
 	}
@@ -451,7 +469,7 @@ func (t *trayApplication) finishAction() {
 		if result.scheduled {
 			message = "Update scheduled. The service will restart shortly."
 		}
-		setWindowText(t.status, "● Service connected")
+		t.setStatus("Service connected", trayStatusConnected)
 		messageBox(t.hwnd, message, displayName, mbOK)
 		return
 	}
@@ -468,14 +486,15 @@ func (t *trayApplication) finishAction() {
 func (t *trayApplication) refreshInfo() { t.startAction("refresh") }
 
 func (t *trayApplication) updateInfo(info pipeInfo) {
-	setWindowText(t.status, "● Service connected")
+	t.setStatus("Service connected", trayStatusConnected)
 	setWindowText(t.code, info.PairingCode)
 	lastCall := "Last server call: Never"
 	if info.LastServerCall != "" {
 		lastCall = "Last server call: " + formatServerCall(info.LastServerCall)
 	}
 	setWindowText(t.lastCall, lastCall)
-	setWindowText(t.details, fmt.Sprintf("API 127.0.0.1:%d · IP %s · Version %s", info.Port, localIPv4(), info.Version))
+	setWindowText(t.details, fmt.Sprintf("LOCAL NETWORK   %s   ·   PORT %d", localIPv4(), info.Port))
+	setWindowText(t.version, "Version "+info.Version)
 }
 
 func (t *trayApplication) show() {
@@ -544,11 +563,6 @@ func loadSystemIcon() uintptr {
 
 func loadSystemCursor() uintptr {
 	result, _, _ := procLoadCursor.Call(0, uintptr(32512))
-	return result
-}
-
-func sysColorBrush(color uint32) uintptr {
-	result, _, _ := procGetSysColorBrush.Call(uintptr(color))
 	return result
 }
 
