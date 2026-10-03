@@ -71,12 +71,13 @@ const (
 	cfUnicodeText = 13
 	gmemMoveable  = 0x00000002
 
-	idCopy    = 1001
-	idRotate  = 1002
-	idRefresh = 1003
-	idUpdate  = 1004
-	idExit    = 1005
-	idCode    = 1006
+	idCopy        = 1001
+	idRotate      = 1002
+	idRefresh     = 1003
+	idUpdate      = 1004
+	idExit        = 1005
+	idCode        = 1006
+	idDiagnostics = 1007
 )
 
 type trayEventKind uint8
@@ -175,10 +176,11 @@ type notifyIconData struct {
 }
 
 type trayResult struct {
-	action string
-	info   pipeInfo
-	update updateCheckResult
-	err    error
+	action               string
+	info                 pipeInfo
+	update               updateCheckResult
+	diagnosticsDirectory string
+	err                  error
 }
 
 type trayApplication struct {
@@ -199,6 +201,7 @@ type trayApplication struct {
 	rotate         windows.HWND
 	refresh        windows.HWND
 	update         windows.HWND
+	diagnostics    windows.HWND
 	mu             sync.Mutex
 	busy           bool
 	pending        *trayResult
@@ -264,7 +267,7 @@ func (t *trayApplication) create() error {
 		return fmt.Errorf("register tray window: %w", callErr)
 	}
 	style := uint32(wsCaption | wsSysMenu | wsMinimizeBox | wsClipChildren)
-	rect := nativeRect{Right: int32(t.theme.px(660)), Bottom: int32(t.theme.px(630))}
+	rect := nativeRect{Right: int32(t.theme.px(660)), Bottom: int32(t.theme.px(660))}
 	procAdjustWindowRectExForDpi.Call(uintptr(unsafe.Pointer(&rect)), uintptr(style), 0, 0, uintptr(t.theme.dpi))
 	t.hwnd = windows.HWND(createWindow(className, utf16(displayName), style, 0x80000000, 0x80000000, int(rect.Right-rect.Left), int(rect.Bottom-rect.Top), 0, t.instance))
 	if t.hwnd == 0 {
@@ -314,7 +317,8 @@ func (t *trayApplication) createControls() {
 	t.details = t.label("Discovering local network...", 56, 518, 548, 20, t.theme.small, trayMuted, traySurface)
 
 	t.update = t.button("Check for updates", 32, 574, 176, 38, idUpdate, trayBackground)
-	t.version = t.label("Version —", 224, 585, 260, 18, t.theme.small, trayMuted, trayBackground)
+	t.diagnostics = t.button("Generate diagnostics", 220, 574, 204, 38, idDiagnostics, trayBackground)
+	t.version = t.label("Version —", 32, 626, 596, 18, t.theme.small, trayMuted, trayBackground)
 	t.button("Exit tray", 516, 574, 112, 38, idExit, trayBackground)
 }
 
@@ -435,6 +439,8 @@ func (t *trayApplication) command(id int) {
 		t.startAction("refresh")
 	case idUpdate:
 		t.startAction("update")
+	case idDiagnostics:
+		t.startAction("diagnostics")
 	case idExit:
 		procDestroyWindow.Call(uintptr(t.hwnd))
 	}
@@ -448,13 +454,20 @@ func (t *trayApplication) startAction(action string) {
 	}
 	t.busy = true
 	t.mu.Unlock()
-	t.setStatus("Connecting to service", trayStatusPending)
-	for _, button := range []windows.HWND{t.copy, t.rotate, t.refresh, t.update} {
+	if action == "diagnostics" {
+		setWindowText(t.diagnostics, "Generating...")
+	} else {
+		t.setStatus("Connecting to service", trayStatusPending)
+	}
+	for _, button := range []windows.HWND{t.copy, t.rotate, t.refresh, t.update, t.diagnostics} {
 		procEnableWindow.Call(uintptr(button), 0)
 	}
+	hwnd := t.hwnd
 	go func() {
 		result := trayResult{action: action}
-		if action == "update" {
+		if action == "diagnostics" {
+			result.diagnosticsDirectory, result.err = generateDiagnostics(hwnd)
+		} else if action == "update" {
 			response, err := callPipeRaw("check-update")
 			result.err = err
 			if err == nil {
@@ -466,7 +479,7 @@ func (t *trayApplication) startAction(action string) {
 		t.mu.Lock()
 		t.pending = &result
 		t.mu.Unlock()
-		procPostMessage.Call(uintptr(t.hwnd), wmAppResult, 0, 0)
+		procPostMessage.Call(uintptr(hwnd), wmAppResult, 0, 0)
 	}()
 }
 
@@ -483,10 +496,16 @@ func (t *trayApplication) finishAction() {
 	t.pending = nil
 	t.busy = false
 	t.mu.Unlock()
-	for _, button := range []windows.HWND{t.copy, t.rotate, t.refresh, t.update} {
+	for _, button := range []windows.HWND{t.copy, t.rotate, t.refresh, t.update, t.diagnostics} {
 		procEnableWindow.Call(uintptr(button), 1)
 	}
+	setWindowText(t.diagnostics, "Generate diagnostics")
 	if result == nil {
+		return
+	}
+	if result.action == "diagnostics" {
+		// Diagnostics does not use the service pipe. Preserve its last known status.
+		t.showDialog(diagnosticsDialogContent(result.diagnosticsDirectory, result.err))
 		return
 	}
 	if result.err != nil {
@@ -581,6 +600,7 @@ func (t *trayApplication) showMenu() {
 	appendMenu(menu, mfString, idCopy, "Copy pairing code")
 	appendMenu(menu, mfString, idRefresh, "Refresh")
 	appendMenu(menu, mfString, idUpdate, "Check for updates")
+	appendMenu(menu, mfString, idDiagnostics, "Generate diagnostics")
 	appendMenu(menu, mfSeparator, 0, "")
 	appendMenu(menu, mfString, idExit, "Exit tray")
 	var point nativePoint

@@ -40,6 +40,8 @@ func TestCompanionNativeDialogs(t *testing.T) {
 		{"rotate-confirm", 96, confirmation, "confirm", idYes},
 		{"local-build", 96, updateDialogContent(updateCheckResult{LocalBuild: true}), "escape", idDialogCancel},
 		{"long-error", 96, dialogContent{title: "Could not check for updates", body: strings.Repeat("Connection error: the server did not respond.\n", 50), tone: dialogError}, "escape", idDialogCancel},
+		{"diagnostics-ready", 96, diagnosticsDialogContent(`C:\Program Files\JonaHomelabCompanion\current\diagnostics`, nil), "enter", idDialogOK},
+		{"diagnostics-cancelled", 144, diagnosticsDialogContent("", windows.ERROR_CANCELLED), "escape", idDialogCancel},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -135,6 +137,46 @@ func TestCompanionNativeIcons(t *testing.T) {
 			if err := writePreview(filepath.Join(directory, fmt.Sprintf("icon-%d.png", size)), companionIconImage(size)); err != nil {
 				t.Fatal(err)
 			}
+		}
+	}
+}
+
+func TestCompanionDiagnosticsControls(t *testing.T) {
+	if os.Getenv("COMPANION_UI_TEST") != "1" {
+		t.Skip("set COMPANION_UI_TEST=1 to exercise native windows")
+	}
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	tray := &trayApplication{}
+	activeTray = tray
+	defer func() { tray.close(); activeTray = nil }()
+	if err := tray.create(); err != nil {
+		t.Fatal(err)
+	}
+	// Do not connect to the installed service or display a real pairing code.
+	tray.setStatus("Service unavailable", trayStatusError)
+	tray.show()
+	getDlgItem := user32.NewProc("GetDlgItem")
+	button, _, _ := getDlgItem.Call(uintptr(tray.hwnd), idDiagnostics)
+	if button == 0 || windows.HWND(button) != tray.diagnostics {
+		t.Fatal("diagnostics button missing")
+	}
+	enabled, _, _ := user32.NewProc("IsWindowEnabled").Call(button)
+	if enabled == 0 {
+		t.Fatal("diagnostics must remain available when the service is offline")
+	}
+	var client, bounds nativeRect
+	user32.NewProc("GetClientRect").Call(uintptr(tray.hwnd), uintptr(unsafe.Pointer(&client)))
+	for _, control := range []windows.HWND{tray.update, tray.diagnostics, tray.version} {
+		procGetWindowRect.Call(uintptr(control), uintptr(unsafe.Pointer(&bounds)))
+		user32.NewProc("MapWindowPoints").Call(0, uintptr(tray.hwnd), uintptr(unsafe.Pointer(&bounds)), 2)
+		if bounds.Left < 0 || bounds.Top < 0 || bounds.Right > client.Right || bounds.Bottom > client.Bottom {
+			t.Fatalf("control outside client area: %+v, client %+v", bounds, client)
+		}
+	}
+	if directory := os.Getenv("COMPANION_UI_SNAPSHOTS"); directory != "" {
+		if err := captureDialog(tray.hwnd, filepath.Join(directory, "diagnostics-controls.png")); err != nil {
+			t.Fatal(err)
 		}
 	}
 }

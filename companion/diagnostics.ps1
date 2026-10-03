@@ -1,10 +1,13 @@
 #Requires -Version 5.1
 [CmdletBinding()]
 param(
-  [string]$OutputDirectory = [Environment]::GetFolderPath('Desktop'),
+  [string]$OutputDirectory,
   [string]$DataDirectory = (Join-Path $env:ProgramData 'JonaHomelabCompanion')
 )
 $ErrorActionPreference = 'Stop'
+if ([string]::IsNullOrWhiteSpace($OutputDirectory)) {
+  $OutputDirectory = Join-Path $PSScriptRoot 'diagnostics'
+}
 New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $report = Join-Path ([IO.Path]::GetFullPath($OutputDirectory)) "companion-diagnostico-$stamp-$([guid]::NewGuid().ToString('N').Substring(0,8))"

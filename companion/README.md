@@ -49,7 +49,11 @@ Desde la carpeta extraída o `C:\Program Files\JonaHomelabCompanion\current`, ej
 .\diagnostics.ps1
 ```
 
-Genera un **ZIP en el Escritorio** que puedes compartir para investigar errores. Funciona aunque el servicio esté parado. Ejecutarlo como administrador permite recoger todas las secciones. Para otro destino:
+Genera un **ZIP en la subcarpeta `diagnostics` junto a `diagnostics.ps1` y al ejecutable**, independientemente de la carpeta desde la que lo invoques. Puedes compartirlo para investigar errores. Funciona aunque el servicio esté parado. Ejecutarlo como administrador permite recoger todas las secciones y escribir en la instalación de `Program Files`.
+
+También puedes pulsar **Generate diagnostics** en la ventana del Companion o en el menú contextual de su icono de bandeja. Windows solicita permiso de administrador para esta operación. La ventana sigue respondiendo mientras se genera el informe y confirma la carpeta de destino al terminar; si cancelas el permiso o falla la generación, muestra el resultado sin cambiar el estado de conexión del servicio.
+
+Para otro destino desde PowerShell:
 
 ```powershell
 .\diagnostics.ps1 -OutputDirectory "$env:USERPROFILE\Downloads"

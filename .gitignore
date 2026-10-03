@@ -17,3 +17,4 @@ artifacts/
 **/obj/
 companion/*.exe
 companion/*.zip
+companion/diagnostics/
