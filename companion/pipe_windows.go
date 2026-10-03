@@ -140,13 +140,11 @@ func handlePipeRequest(ctx context.Context, state *runtimeState, request string)
 		}
 		return marshalLocal(pipeInfo{Ready: true, Version: releaseVersion(), Port: companionPort, PairingCode: code, LastServerCall: state.config.lastServerCall()})
 	case "check-update":
-		scheduled, err := state.updates.checkAndSchedule(ctx)
+		result, err := state.updates.checkAndSchedule(ctx)
 		if err != nil {
 			return localError(err)
 		}
-		return marshalLocal(struct {
-			Scheduled bool `json:"scheduled"`
-		}{scheduled})
+		return marshalLocal(result)
 	default:
 		return `{"error":"Unknown action."}`
 	}
@@ -232,6 +230,11 @@ func callPipe(action string) (pipeInfo, error) {
 	return info, nil
 }
 
+// An operation error is a valid reply from a reachable service, not a connection failure.
+type pipeOperationError struct{ message string }
+
+func (e *pipeOperationError) Error() string { return e.message }
+
 func callPipeRaw(action string) ([]byte, error) {
 	request, err := json.Marshal(struct {
 		Action string `json:"action"`
@@ -256,7 +259,8 @@ func callPipeRaw(action string) ([]byte, error) {
 					Error string `json:"error"`
 				}
 				if json.Unmarshal([]byte(response), &errorResponse) == nil && errorResponse.Error != "" {
-					responseErr = errors.New(errorResponse.Error)
+					_ = windows.CloseHandle(handle)
+					return nil, &pipeOperationError{message: errorResponse.Error}
 				} else if json.Valid([]byte(response)) {
 					_ = windows.CloseHandle(handle)
 					return []byte(response), nil

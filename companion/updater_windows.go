@@ -30,6 +30,11 @@ const (
 
 var releaseTagPattern = regexp.MustCompile(`^main-[0-9a-f]{12}$`)
 
+type updateCheckResult struct {
+	Scheduled  bool `json:"scheduled"`
+	LocalBuild bool `json:"localBuild,omitempty"`
+}
+
 type updateCoordinator struct {
 	config *configStore
 	mu     sync.Mutex
@@ -40,31 +45,31 @@ func newUpdateCoordinator(config *configStore) *updateCoordinator {
 	return &updateCoordinator{config: config, client: &http.Client{Timeout: 30 * time.Second}}
 }
 
-func (u *updateCoordinator) checkAndSchedule(ctx context.Context) (scheduled bool, resultErr error) {
+func (u *updateCoordinator) checkAndSchedule(ctx context.Context) (result updateCheckResult, resultErr error) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	defer func() {
-		fields := map[string]any{"scheduled": scheduled}
+		fields := map[string]any{"scheduled": result.Scheduled, "localBuild": result.LocalBuild}
 		if resultErr != nil {
 			fields["error"] = resultErr.Error()
 		}
 		logEvent("update.check", fields)
 	}()
 	if !releaseTagPattern.MatchString(releaseVersion()) {
-		return false, errors.New("Local build: install a published package to enable updates")
+		return updateCheckResult{LocalBuild: true}, nil
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.github.com/repos/"+githubRepository+"/releases/latest", nil)
 	if err != nil {
-		return false, err
+		return result, err
 	}
 	request.Header.Set("User-Agent", "JonaHomelabCompanion/Go")
 	response, err := u.client.Do(request)
 	if err != nil {
-		return false, err
+		return result, err
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return false, fmt.Errorf("release check returned HTTP %d", response.StatusCode)
+		return result, fmt.Errorf("release check returned HTTP %d", response.StatusCode)
 	}
 	var release struct {
 		TagName string `json:"tag_name"`
@@ -74,10 +79,10 @@ func (u *updateCoordinator) checkAndSchedule(ctx context.Context) (scheduled boo
 		} `json:"assets"`
 	}
 	if json.NewDecoder(response.Body).Decode(&release) != nil || !releaseTagPattern.MatchString(release.TagName) {
-		return false, errors.New("invalid release metadata")
+		return result, errors.New("invalid release metadata")
 	}
 	if release.TagName == releaseVersion() {
-		return false, nil
+		return result, nil
 	}
 	assets := make(map[string]string, len(release.Assets))
 	for _, asset := range release.Assets {
@@ -86,18 +91,18 @@ func (u *updateCoordinator) checkAndSchedule(ctx context.Context) (scheduled boo
 	archiveURL, archiveOK := assets[archiveName]
 	checksumURL, checksumOK := assets[checksumName]
 	if !archiveOK || !checksumOK || !validGithubDownload(archiveURL) || !validGithubDownload(checksumURL) {
-		return false, errors.New("release assets missing or invalid")
+		return result, errors.New("release assets missing or invalid")
 	}
 	executable, err := os.Executable()
 	if err != nil {
-		return false, err
+		return result, err
 	}
 	command := exec.Command(executable, "--update", release.TagName, archiveURL, checksumURL, fmt.Sprint(os.Getpid()))
 	command.Dir = filepath.Dir(executable)
 	if err := command.Start(); err != nil {
-		return false, err
+		return result, err
 	}
-	return true, nil
+	return updateCheckResult{Scheduled: true}, nil
 }
 
 func runUpdater(args []string) (result int) {

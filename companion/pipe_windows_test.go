@@ -4,6 +4,8 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
@@ -37,6 +39,22 @@ func TestPipeReplySurvivesDisconnectAndServerStops(t *testing.T) {
 		if err != nil || !info.Ready || info.PairingCode == "" {
 			t.Fatalf("reply %d: %v", i, err)
 		}
+	}
+	response, err := callPipeRaw("check-update")
+	if err != nil {
+		t.Fatalf("local update check failed over pipe: %v", err)
+	}
+	var result updateCheckResult
+	if err := json.Unmarshal(response, &result); err != nil || !result.LocalBuild || result.Scheduled {
+		t.Fatalf("unexpected local update reply: %s", response)
+	}
+	_, err = callPipeRaw("unknown-action")
+	var operationError *pipeOperationError
+	if !errors.As(err, &operationError) || operationError.Error() != "Unknown action." {
+		t.Fatalf("operation error reported as connection failure: %v", err)
+	}
+	if info, err := callPipe("get-info"); err != nil || !info.Ready {
+		t.Fatalf("service unavailable after operation error: %v", err)
 	}
 	cancel()
 	select {

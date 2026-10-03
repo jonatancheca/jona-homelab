@@ -2,7 +2,27 @@
 
 package main
 
-import "testing"
+import (
+	"errors"
+	"fmt"
+	"strings"
+	"testing"
+)
+
+func TestUpdateResultsDoNotReportAServiceOutage(t *testing.T) {
+	message := updateCheckMessage(updateCheckResult{LocalBuild: true})
+	if !strings.Contains(message, "local build") || !strings.Contains(message, "manually") || strings.Contains(message, "up to date") {
+		t.Fatalf("local build presented as an update check success: %s", message)
+	}
+	for _, err := range []error{nil, &pipeOperationError{message: "release check returned HTTP 503"}, fmt.Errorf("update: %w", &pipeOperationError{message: "invalid release metadata"})} {
+		if _, status := trayServiceStatus(err); status != trayStatusConnected {
+			t.Fatalf("reachable service marked offline: %v", err)
+		}
+	}
+	if _, status := trayServiceStatus(errors.New("pipe unavailable")); status != trayStatusError {
+		t.Fatal("actual service connection failure hidden")
+	}
+}
 
 func TestTrayEventKindUsesLowWordWithIconID(t *testing.T) {
 	tests := []struct {

@@ -65,7 +65,7 @@ Archivos en `C:\ProgramData\JonaHomelabCompanion`:
 
 ## Paquetes locales y actualizaciones
 
-Las versiones `local-...` permiten probar una reparación y no se actualizan automáticamente a una release anterior. Las versiones publicadas `main-...` mantienen la comprobación diaria de actualizaciones, checksum y rollback. Una comprobación fallida se registra y la bandeja muestra el error.
+Las versiones `local-...` permiten probar una reparación y no se actualizan automáticamente a una release anterior. En ellas, **Check for updates** muestra una explicación informativa y mantiene el servicio conectado; no intenta descargar ni instalar nada. Para habilitar actualizaciones automáticas hay que instalar un paquete publicado `main-...`, que mantiene la comprobación diaria, checksum y rollback. Un error del comprobador se registra y se muestra sin confundirlo con una caída del servicio; solo un fallo de conexión al servicio muestra **Service unavailable**.
 
 Para generar un ZIP desde el código, con Go instalado, sin compilar la web:
 

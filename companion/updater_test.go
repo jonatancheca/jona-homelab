@@ -4,12 +4,30 @@ package main
 
 import (
 	"archive/zip"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"net/http"
 	"os"
 	"path/filepath"
 	"testing"
 )
+
+type failUpdateTransport struct{ t *testing.T }
+
+func (f failUpdateTransport) RoundTrip(*http.Request) (*http.Response, error) {
+	f.t.Fatal("local build must not contact GitHub or launch an update")
+	return nil, nil
+}
+
+func TestLocalUpdateCheckIsInformationalAndOffline(t *testing.T) {
+	updater := newUpdateCoordinator(nil)
+	updater.client = &http.Client{Transport: failUpdateTransport{t}}
+	result, err := updater.checkAndSchedule(context.Background())
+	if err != nil || !result.LocalBuild || result.Scheduled {
+		t.Fatalf("local check must be a disabled result, not an error: %+v, %v", result, err)
+	}
+}
 
 func TestUpdaterValidation(t *testing.T) {
 	if !validGithubDownload("https://github.com/jonatancheca/jona-homelab/releases/download/main-0123456789ab/file.zip") {

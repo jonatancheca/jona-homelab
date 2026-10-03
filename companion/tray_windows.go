@@ -178,10 +178,10 @@ type notifyIconData struct {
 }
 
 type trayResult struct {
-	action    string
-	info      pipeInfo
-	scheduled bool
-	err       error
+	action string
+	info   pipeInfo
+	update updateCheckResult
+	err    error
 }
 
 type trayApplication struct {
@@ -424,11 +424,7 @@ func (t *trayApplication) startAction(action string) {
 			response, err := callPipeRaw("check-update")
 			result.err = err
 			if err == nil {
-				var body struct {
-					Scheduled bool `json:"scheduled"`
-				}
-				result.err = jsonUnmarshal(response, &body)
-				result.scheduled = body.Scheduled
+				result.err = jsonUnmarshal(response, &result.update)
 			}
 		} else {
 			result.info, result.err = callPipe(actionForPipe(action))
@@ -460,17 +456,14 @@ func (t *trayApplication) finishAction() {
 		return
 	}
 	if result.err != nil {
-		t.setStatus("Service unavailable", trayStatusError)
+		text, status := trayServiceStatus(result.err)
+		t.setStatus(text, status)
 		messageBox(t.hwnd, result.err.Error(), displayName, mbOK|mbIconError)
 		return
 	}
 	if result.action == "update" {
-		message := "Already up to date."
-		if result.scheduled {
-			message = "Update scheduled. The service will restart shortly."
-		}
 		t.setStatus("Service connected", trayStatusConnected)
-		messageBox(t.hwnd, message, displayName, mbOK)
+		messageBox(t.hwnd, updateCheckMessage(result.update), displayName, mbOK)
 		return
 	}
 	t.updateInfo(result.info)
@@ -481,6 +474,24 @@ func (t *trayApplication) finishAction() {
 		}
 		messageBox(t.hwnd, "Pairing code copied to the clipboard.", displayName, mbOK)
 	}
+}
+
+func trayServiceStatus(err error) (string, trayStatus) {
+	var operationError *pipeOperationError
+	if err == nil || errors.As(err, &operationError) {
+		return "Service connected", trayStatusConnected
+	}
+	return "Service unavailable", trayStatusError
+}
+
+func updateCheckMessage(result updateCheckResult) string {
+	if result.LocalBuild {
+		return "This is a local build. Updates are installed manually. Install a published release to enable automatic updates.\n\nThe Companion service remains available for device controls."
+	}
+	if result.Scheduled {
+		return "Update scheduled. The service will restart shortly."
+	}
+	return "Already up to date."
 }
 
 func (t *trayApplication) refreshInfo() { t.startAction("refresh") }
