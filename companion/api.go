@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -16,10 +15,11 @@ import (
 )
 
 type runtimeState struct {
-	config   *configStore
-	replay   *replayGuard
-	shutdown *shutdownExecutor
-	updates  *updateCoordinator
+	config    *configStore
+	replay    *replayGuard
+	shutdown  *shutdownExecutor
+	updates   *updateCoordinator
+	simulated bool
 }
 
 func newRuntimeState(config *configStore) *runtimeState {
@@ -36,6 +36,7 @@ func (r *runtimeState) handler() http.Handler {
 	mux.HandleFunc("/health", r.health)
 	mux.HandleFunc("/v1/status", r.status)
 	mux.HandleFunc("/v1/shutdown", r.shutdownRequest)
+	mux.HandleFunc("/v1/power", r.powerRequest)
 	return http.MaxBytesHandler(mux, 64*1024)
 }
 
@@ -44,7 +45,7 @@ func (r *runtimeState) health(writer http.ResponseWriter, request *http.Request)
 		writePlainStatus(writer, http.StatusForbidden)
 		return
 	}
-	writeJSON(writer, http.StatusOK, map[string]any{"status": "ok", "version": releaseVersion()})
+	writeJSON(writer, http.StatusOK, map[string]any{"status": "ok", "version": releaseVersion(), "simulated": r.simulated})
 }
 
 func (r *runtimeState) status(writer http.ResponseWriter, request *http.Request) {
@@ -59,6 +60,7 @@ func (r *runtimeState) status(writer http.ResponseWriter, request *http.Request)
 	}
 	_ = body
 	r.config.recordServerCall(time.Now())
+	logEvent("status.ok", map[string]any{"client": remoteIP(request).String()})
 	responseBody, _ := json.Marshal(struct {
 		Ready    bool   `json:"ready"`
 		Version  string `json:"version"`
@@ -83,11 +85,14 @@ func (r *runtimeState) shutdownRequest(writer http.ResponseWriter, request *http
 		return
 	}
 	r.config.recordServerCall(time.Now())
-	accepted := r.shutdown.trySchedule(force)
+	accepted, err := r.shutdown.trySchedule(force)
 	responseStatus := http.StatusAccepted
-	if !accepted {
+	if err != nil {
+		responseStatus = http.StatusInternalServerError
+	} else if !accepted {
 		responseStatus = http.StatusTooManyRequests
 	}
+	logEvent("shutdown.response", map[string]any{"client": remoteIP(request).String(), "force": force, "status": responseStatus, "simulated": r.simulated})
 	responseBody, _ := json.Marshal(struct {
 		Accepted   bool `json:"accepted"`
 		RetryAfter int  `json:"retryAfter"`
@@ -96,29 +101,92 @@ func (r *runtimeState) shutdownRequest(writer http.ResponseWriter, request *http
 }
 
 func (r *runtimeState) authenticate(request *http.Request, requireBody bool) (string, string, int, bool) {
+	reject := func(status int, reason string) (string, string, int, bool) {
+		logEvent("request.rejected", map[string]any{"client": remoteIP(request).String(), "status": status, "reason": reason})
+		return "", request.Header.Get(nonceHeader), status, false
+	}
 	if !isPrivateClient(remoteIP(request)) {
-		return "", request.Header.Get(nonceHeader), http.StatusForbidden, false
+		return reject(http.StatusForbidden, "client outside private IPv4 network")
 	}
 	body := ""
 	if requireBody {
 		content, err := io.ReadAll(io.LimitReader(request.Body, 64*1024+1))
 		if err != nil || len(content) > 64*1024 {
-			return "", request.Header.Get(nonceHeader), http.StatusRequestEntityTooLarge, false
+			return reject(http.StatusRequestEntityTooLarge, "body too large or unreadable")
 		}
 		body = string(content)
 	}
 	secret, err := r.config.secret()
 	if err != nil {
-		return body, request.Header.Get(nonceHeader), http.StatusInternalServerError, false
+		return reject(http.StatusInternalServerError, "secret unavailable")
 	}
 	nonce, valid := verifyRequest(secret, request.Method, request.URL.Path, body, request.Header, time.Now())
 	if !valid {
-		return body, nonce, http.StatusUnauthorized, false
+		return reject(http.StatusUnauthorized, "invalid signature or timestamp; check pairing and clock")
 	}
 	if !r.replay.tryUse(nonce) {
-		return body, nonce, http.StatusConflict, false
+		return reject(http.StatusConflict, "replayed nonce")
 	}
 	return body, nonce, http.StatusOK, true
+}
+
+func readPower(body string) (powerAction, bool, bool) {
+	var input struct {
+		Action powerAction `json:"action"`
+		Force  *bool       `json:"force"`
+	}
+	decoder := json.NewDecoder(strings.NewReader(body))
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(&input) != nil || input.Force == nil {
+		return "", false, false
+	}
+	var trailing any
+	if decoder.Decode(&trailing) != io.EOF {
+		return "", false, false
+	}
+	if input.Action != powerShutdown && input.Action != powerSleep && input.Action != powerHibernate {
+		return "", false, false
+	}
+	if input.Action != powerShutdown && *input.Force {
+		return "", false, false
+	}
+	return input.Action, *input.Force, true
+}
+
+func (r *runtimeState) powerRequest(writer http.ResponseWriter, request *http.Request) {
+	if request.Method != http.MethodPost {
+		writePlainStatus(writer, http.StatusMethodNotAllowed)
+		return
+	}
+	body, nonce, status, ok := r.authenticate(request, true)
+	if !ok {
+		writePlainStatus(writer, status)
+		return
+	}
+	action, force, valid := readPower(body)
+	if !valid {
+		writePlainStatus(writer, http.StatusBadRequest)
+		return
+	}
+	r.config.recordServerCall(time.Now())
+	var accepted bool
+	var err error
+	if action == powerShutdown {
+		accepted, err = r.shutdown.trySchedule(force)
+	} else {
+		accepted, err = r.shutdown.trySuspend(action)
+	}
+	status = http.StatusAccepted
+	if errors.Is(err, errPowerUnsupported) {
+		status = http.StatusConflict
+	} else if err != nil {
+		status = http.StatusInternalServerError
+	} else if !accepted {
+		status = http.StatusTooManyRequests
+	}
+	logEvent("power.response", map[string]any{"action": action, "client": remoteIP(request).String(), "status": status, "simulated": r.simulated})
+	response, _ := json.Marshal(map[string]any{"accepted": accepted, "retryAfter": 10})
+	r.writeSigned(writer, status, nonce, response)
 }
 
 func (r *runtimeState) writeSigned(writer http.ResponseWriter, status int, nonce string, body []byte) {
@@ -144,7 +212,7 @@ func readForce(body string) (bool, bool) {
 		return false, false
 	}
 	value, ok := fields["force"]
-	if !ok {
+	if !ok || string(value) == "null" {
 		return false, false
 	}
 	var force bool
@@ -216,9 +284,8 @@ func (g *replayGuard) tryUse(nonce string) bool {
 	return true
 }
 
-func runHTTP(ctx context.Context, state *runtimeState) error {
+func runHTTP(ctx context.Context, state *runtimeState, listener net.Listener) error {
 	server := &http.Server{
-		Addr:              fmt.Sprintf("0.0.0.0:%d", companionPort),
 		Handler:           state.handler(),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
@@ -227,7 +294,7 @@ func runHTTP(ctx context.Context, state *runtimeState) error {
 	}
 	errorChannel := make(chan error, 1)
 	go func() {
-		err := server.ListenAndServe()
+		err := server.Serve(listener)
 		if !errors.Is(err, http.ErrServerClosed) {
 			errorChannel <- err
 		}

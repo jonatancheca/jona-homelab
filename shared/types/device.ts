@@ -12,6 +12,8 @@ export interface Device {
 }
 
 export type RemoteMethod = 'ssh' | 'companion' | 'none'
+export type PowerAction = 'shutdown' | 'sleep' | 'hibernate'
+export interface PowerInput { action: PowerAction, force: boolean }
 
 export interface DeviceInput {
   name: string

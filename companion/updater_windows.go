@@ -40,21 +40,31 @@ func newUpdateCoordinator(config *configStore) *updateCoordinator {
 	return &updateCoordinator{config: config, client: &http.Client{Timeout: 30 * time.Second}}
 }
 
-func (u *updateCoordinator) checkAndSchedule(ctx context.Context) bool {
+func (u *updateCoordinator) checkAndSchedule(ctx context.Context) (scheduled bool, resultErr error) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
+	defer func() {
+		fields := map[string]any{"scheduled": scheduled}
+		if resultErr != nil {
+			fields["error"] = resultErr.Error()
+		}
+		logEvent("update.check", fields)
+	}()
+	if !releaseTagPattern.MatchString(releaseVersion()) {
+		return false, errors.New("Local build: install a published package to enable updates")
+	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.github.com/repos/"+githubRepository+"/releases/latest", nil)
 	if err != nil {
-		return false
+		return false, err
 	}
 	request.Header.Set("User-Agent", "JonaHomelabCompanion/Go")
 	response, err := u.client.Do(request)
 	if err != nil {
-		return false
+		return false, err
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return false
+		return false, fmt.Errorf("release check returned HTTP %d", response.StatusCode)
 	}
 	var release struct {
 		TagName string `json:"tag_name"`
@@ -63,8 +73,11 @@ func (u *updateCoordinator) checkAndSchedule(ctx context.Context) bool {
 			URL  string `json:"browser_download_url"`
 		} `json:"assets"`
 	}
-	if json.NewDecoder(response.Body).Decode(&release) != nil || !releaseTagPattern.MatchString(release.TagName) || release.TagName == releaseVersion() {
-		return false
+	if json.NewDecoder(response.Body).Decode(&release) != nil || !releaseTagPattern.MatchString(release.TagName) {
+		return false, errors.New("invalid release metadata")
+	}
+	if release.TagName == releaseVersion() {
+		return false, nil
 	}
 	assets := make(map[string]string, len(release.Assets))
 	for _, asset := range release.Assets {
@@ -73,21 +86,23 @@ func (u *updateCoordinator) checkAndSchedule(ctx context.Context) bool {
 	archiveURL, archiveOK := assets[archiveName]
 	checksumURL, checksumOK := assets[checksumName]
 	if !archiveOK || !checksumOK || !validGithubDownload(archiveURL) || !validGithubDownload(checksumURL) {
-		return false
+		return false, errors.New("release assets missing or invalid")
 	}
 	executable, err := os.Executable()
 	if err != nil {
-		return false
+		return false, err
 	}
 	command := exec.Command(executable, "--update", release.TagName, archiveURL, checksumURL, fmt.Sprint(os.Getpid()))
 	command.Dir = filepath.Dir(executable)
 	if err := command.Start(); err != nil {
-		return false
+		return false, err
 	}
-	return true
+	return true, nil
 }
 
-func runUpdater(args []string) int {
+func runUpdater(args []string) (result int) {
+	logEvent("update.starting", nil)
+	defer func() { logEvent("update.finished", map[string]any{"exitCode": result}) }()
 	if len(args) != 4 || !releaseTagPattern.MatchString(args[0]) || !validGithubDownload(args[1]) || !validGithubDownload(args[2]) {
 		return 2
 	}

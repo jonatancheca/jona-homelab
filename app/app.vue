@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { Device, DeviceStatus, ShutdownResult, WakeResult } from '../shared/types/device'
+import type { Device, DeviceStatus, PowerAction, ShutdownResult, WakeResult } from '../shared/types/device'
 
 const devices = ref<Device[]>([])
 const loading = ref(true)
@@ -19,6 +19,7 @@ const saving = ref(false)
 const removing = ref(false)
 const shuttingDown = ref(false)
 const forceShutdown = ref(false)
+const powerAction = ref<PowerAction>('shutdown')
 const sending = ref(new Set<string>())
 const cooldowns = ref<Record<string, number>>({})
 const feedback = ref<Record<string, { message: string, error: boolean } | undefined>>({})
@@ -120,6 +121,7 @@ async function removeDevice() {
 
 function confirmShutdown(device: Device) {
   shutdownTarget.value = device
+  powerAction.value = 'shutdown'
   forceShutdown.value = false
   shutdownError.value = ''
   shutdownDialog.value?.showModal()
@@ -130,8 +132,8 @@ async function requestShutdown() {
   shuttingDown.value = true
   shutdownError.value = ''
   try {
-    const result = await $fetch<ShutdownResult>(`/api/devices/${shutdownTarget.value.id}/shutdown`, {
-      method: 'POST', body: { force: forceShutdown.value },
+    const result = await $fetch<ShutdownResult>(`/api/devices/${shutdownTarget.value.id}/${powerAction.value === 'shutdown' ? 'shutdown' : 'power'}`, {
+      method: 'POST', body: powerAction.value === 'shutdown' ? { force: forceShutdown.value } : { action: powerAction.value, force: false },
     })
     shutdownDialog.value?.close()
     notify(result.message)
@@ -234,7 +236,7 @@ onUnmounted(() => {
               <div class="last-sent"><AppIcon name="clock" /><span>{{ device.lastSentAt ? `Last sent: ${dateLabel(device.lastSentAt)}` : 'No packets sent' }}</span></div>
               <div class="power-actions">
                 <button class="button wake-button" :disabled="sending.has(device.id) || remaining(device.id) > 0" @click="wake(device)"><span v-if="sending.has(device.id)" class="spinner small"></span><AppIcon v-else name="power" />{{ sending.has(device.id) ? 'Sending…' : remaining(device.id) ? `Wait ${remaining(device.id)} s` : 'Wake' }}</button>
-                <button v-if="device.remoteMethod !== 'none'" class="button shutdown-button" :disabled="!statuses[device.id]?.remoteReady || shuttingDown" @click="confirmShutdown(device)"><AppIcon name="power" /> Shut down</button>
+                <button v-if="device.remoteMethod !== 'none'" class="button shutdown-button" :disabled="!statuses[device.id]?.remoteReady || shuttingDown" @click="confirmShutdown(device)"><AppIcon name="power" /> {{ device.remoteMethod === 'companion' ? 'Power options' : 'Shut down' }}</button>
               </div>
               <p v-if="feedback[device.id]" class="card-feedback" :class="{ failure: feedback[device.id]!.error }" :role="feedback[device.id]!.error ? 'alert' : 'status'"><AppIcon :name="feedback[device.id]!.error ? 'info' : 'check'" />{{ feedback[device.id]!.message }}</p>
             </article>
@@ -276,16 +278,22 @@ onUnmounted(() => {
     <dialog ref="shutdownDialog" class="modal" aria-labelledby="shutdown-title" @cancel.prevent="closeShutdown()">
       <form @submit.prevent="requestShutdown()">
         <div class="modal-heading"><span class="device-symbol shutdown-symbol"><AppIcon name="power" /></span><button type="button" class="icon-button" aria-label="Close shutdown confirmation" :disabled="shuttingDown" @click="closeShutdown()"><AppIcon name="close" /></button></div>
-        <h2 id="shutdown-title">Shut down {{ shutdownTarget?.name }}?</h2>
-        <p class="modal-intro">{{ shutdownDescription(shutdownTarget) }}</p>
-        <fieldset class="shutdown-options" :disabled="shuttingDown">
+        <h2 id="shutdown-title">{{ powerAction === 'sleep' ? 'Sleep' : powerAction === 'hibernate' ? 'Hibernate' : 'Shut down' }} {{ shutdownTarget?.name }}?</h2>
+        <fieldset v-if="shutdownTarget?.remoteMethod === 'companion'" class="shutdown-options" :disabled="shuttingDown">
+          <legend>Power action</legend>
+          <label><input v-model="powerAction" type="radio" value="shutdown" /><span><strong>Shut down</strong><small>Close Windows and turn off the PC.</small></span></label>
+          <label><input v-model="powerAction" type="radio" value="sleep" /><span><strong>Sleep</strong><small>Keep your session in memory. Requires sleep support in Windows.</small></span></label>
+          <label><input v-model="powerAction" type="radio" value="hibernate" /><span><strong>Hibernate</strong><small>Save your session to disk. Requires hibernation enabled in Windows.</small></span></label>
+        </fieldset>
+        <p class="modal-intro">{{ powerAction === 'shutdown' ? shutdownDescription(shutdownTarget) : 'Companion will schedule this action. Check its logs if Windows rejects it. Wake-on-LAN availability depends on your PC settings.' }}</p>
+        <fieldset v-if="powerAction === 'shutdown'" class="shutdown-options" :disabled="shuttingDown">
           <legend>Shutdown mode</legend>
           <label><input v-model="forceShutdown" type="radio" :value="false" /><span><strong>Safe shutdown</strong><small>Does not force applications to close. An application may block shutdown.</small></span></label>
           <label><input v-model="forceShutdown" type="radio" :value="true" /><span><strong>Force shutdown</strong><small>Closes applications immediately. Unsaved work can be lost.</small></span></label>
         </fieldset>
-        <p v-if="forceShutdown" class="force-warning"><AppIcon name="info" />Forced shutdown can permanently lose unsaved work.</p>
+        <p v-if="powerAction === 'shutdown' && forceShutdown" class="force-warning"><AppIcon name="info" />Forced shutdown can permanently lose unsaved work.</p>
         <p v-if="shutdownError" class="form-error" role="alert">{{ shutdownError }}</p>
-        <div class="modal-actions"><button type="button" class="button secondary" :disabled="shuttingDown" @click="closeShutdown()">Cancel</button><button type="submit" class="button danger" :disabled="shuttingDown">{{ shuttingDown ? 'Sending…' : forceShutdown ? 'Force shut down' : 'Shut down safely' }}</button></div>
+        <div class="modal-actions"><button type="button" class="button secondary" :disabled="shuttingDown" @click="closeShutdown()">Cancel</button><button type="submit" class="button danger" :disabled="shuttingDown">{{ shuttingDown ? 'Sending…' : powerAction === 'sleep' ? 'Sleep PC' : powerAction === 'hibernate' ? 'Hibernate PC' : forceShutdown ? 'Force shut down' : 'Shut down safely' }}</button></div>
       </form>
     </dialog>
     <div v-if="toast" class="toast" role="status"><AppIcon name="check" />{{ toast }}</div>

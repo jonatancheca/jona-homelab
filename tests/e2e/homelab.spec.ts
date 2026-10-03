@@ -222,10 +222,25 @@ test('registers Companion devices without exposing pairing code and dispatches s
   await expect(form.getByText('Already paired. Leave blank to keep the current code.')).toBeVisible()
   expect(await form.locator('input').evaluateAll((elements, code) => elements.some(element => (element as HTMLInputElement).value === code), pairingCode)).toBe(false)
   await form.getByRole('button', { name: 'Cancel' }).click()
-  await card.getByRole('button', { name: 'Shut down', exact: true }).click()
+  await card.getByRole('button', { name: 'Power options', exact: true }).click()
   await expect(page.getByRole('dialog', { name: 'Shut down Companion Windows?' })).toBeVisible()
   await page.getByRole('dialog', { name: 'Shut down Companion Windows?' }).getByRole('button', { name: 'Shut down safely' }).click()
   await expect(page.getByRole('status')).toContainText('Shutdown command accepted')
+  const actions: unknown[] = []
+  await page.route(`**/api/devices/${device.id}/power`, (route) => {
+    actions.push(route.request().postDataJSON())
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ message: 'Power command scheduled', retryAfter: 10 }) })
+  })
+  for (const action of ['sleep', 'hibernate']) {
+    await card.getByRole('button', { name: 'Power options', exact: true }).click()
+    const dialog = page.getByRole('dialog')
+    await dialog.getByRole('radio', { name: 'Force shutdown', exact: false }).check()
+    await dialog.getByRole('radio', { name: action === 'sleep' ? /^Sleep / : /^Hibernate / }).check()
+    await expect(dialog.getByText('Forced shutdown can permanently lose unsaved work.')).toHaveCount(0)
+    await dialog.getByRole('button', { name: action === 'sleep' ? 'Sleep PC' : 'Hibernate PC', exact: true }).click()
+    await expect(page.getByRole('status')).toContainText('Power command scheduled')
+  }
+  expect(actions).toEqual([{ action: 'sleep', force: false }, { action: 'hibernate', force: false }])
   await request.delete(`/api/devices/${device.id}`, { headers, data: {} })
 })
 

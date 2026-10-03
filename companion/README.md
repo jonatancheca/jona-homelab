@@ -1,56 +1,96 @@
-# Jona Homelab Companion (Go)
+# Jona Homelab Companion para Windows
 
-Windows 11 x64 companion for authenticated LAN status and shutdown commands. The package is self-contained, written in Go and does not require .NET. It is not Authenticode-signed; Windows SmartScreen may show a warning. Verify the SHA256 file from the same GitHub release before extracting.
+Servicio Windows 11 x64 para consultar estado y apagar un PC desde Jona Homelab. Ejecutable Go autocontenido, sin .NET. El servicio funciona aunque no haya una sesión iniciada; la bandeja solo muestra el código de emparejado y el estado.
 
-## Install
+## Instalar
 
-Run PowerShell as administrator from the extracted release directory:
+1. Extrae el ZIP completo fuera de `C:\Program Files\JonaHomelabCompanion`.
+2. Abre PowerShell **como administrador** en la carpeta extraída:
 
 ```powershell
 Set-ExecutionPolicy -Scope Process Bypass
 .\install.ps1
 ```
 
-The installer creates the automatic `JonaHomelabCompanion` service, a tray task, a Private-profile firewall rule for TCP 47654 and protected state under `C:\ProgramData\JonaHomelabCompanion`. The service runs as `LocalSystem`; the tray is a separate interactive process.
+El instalador conserva el emparejado, crea el servicio `JonaHomelabCompanion` como `LocalSystem` con arranque automático retrasado y recuperación ante errores. Abre TCP 47654 únicamente para la subred local en el perfil **Privado**. Comprueba la versión y la API antes de dar la instalación por terminada. No cambies el perfil de una red pública o no confiable para habilitarlo.
 
-The tray starts at user logon. Restarting the service does not reopen a tray process that was closed; start it again with:
+La bandeja se inicia al entrar en Windows. Si no aparece:
 
 ```powershell
 Start-ScheduledTask -TaskName JonaHomelabCompanionTray
 ```
 
-Do not launch the tray with `&` when you want your shell prompt back: the tray is intentionally a resident process. Use the scheduled task or:
+Un fallo al crear la bandeja no detiene el servicio. Para omitirla expresamente: `install.ps1 -SkipTray`.
+
+## Conectar con la web
+
+1. Abre la bandeja y copia el código `jhcp1_...`.
+2. En Jona Homelab, edita el dispositivo, selecciona **Companion**, introduce la IPv4 privada o nombre del PC y pega el código.
+3. Guarda y actualiza el estado. Debe aparecer **Companion ready**.
+4. Pulsa **Power options** y elige **Shut down**, **Sleep** o **Hibernate**. Confirma la acción. El apagado seguro permite que aplicaciones bloqueen el apagado; el forzado puede perder trabajo sin guardar.
+
+Suspender e hibernar requieren este Companion actualizado y los estados habilitados en Windows. La API nativa comprueba suspensión clásica o Modern Standby y, para hibernar, un archivo de hibernación completo. No habilita ni cambia la configuración de energía automáticamente. `powercfg /a` muestra los estados disponibles; el ZIP de diagnóstico incluye esa información. SSH conserva solo el apagado.
+
+Las nuevas acciones usan `POST /v1/power` con `{ "action": "sleep" | "hibernate" | "shutdown", "force": false }`, firmado con el mismo protocolo. `force: true` solo se permite para apagar. El endpoint anterior `/v1/shutdown` se conserva. Todas las acciones comparten diez segundos de espera y no se reintentan automáticamente.
+
+Suspensión e hibernación se programan antes de cambiar el estado del equipo para que la web reciba respuesta. Las trazas `power.scheduled`, `power.executing`, `power.completed`, `power.failed` y `power.rejected` muestran el resultado. La aceptación no prueba que el cambio de estado haya terminado. Se conservan los eventos de reactivación de Windows; Wake-on-LAN depende del hardware y de su configuración.
+
+La conexión sale del servidor de Jona Homelab. Ese servidor debe alcanzar el PC por TCP 47654 en la red privada. No hay que configurar SSH. Los relojes de ambos equipos deben estar sincronizados (tolerancia de 60 segundos).
+
+El protocolo firma peticiones y respuestas con HMAC-SHA256, rechaza repeticiones y no devuelve la clave a la web. El secreto se guarda con DPAPI de máquina y ACL para administradores/SYSTEM. La bandeja accede mediante un canal local con límite de espera, inaccesible desde la red.
+
+## Trazas y diagnóstico
+
+Desde la carpeta extraída o `C:\Program Files\JonaHomelabCompanion\current`, ejecuta:
 
 ```powershell
-Start-Process -WindowStyle Hidden -FilePath 'C:\Program Files\JonaHomelabCompanion\current\JonaHomelab.Companion.exe' -ArgumentList '--tray'
+.\diagnostics.ps1
 ```
 
-The tray window shows service status, version, local IPv4 address, API port, pairing code and the last authenticated server call. Copy or rotate the code, refresh state and check updates from the window or tray menu.
-
-If Windows shows the service as stopped, read the safe startup error log from an administrator PowerShell:
+Genera un **ZIP en el Escritorio** que puedes compartir para investigar errores. Funciona aunque el servicio esté parado. Ejecutarlo como administrador permite recoger todas las secciones. Para otro destino:
 
 ```powershell
-Get-Content 'C:\ProgramData\JonaHomelabCompanion\service.log'
+.\diagnostics.ps1 -OutputDirectory "$env:USERPROFILE\Downloads"
 ```
 
-The log contains startup/bind errors only; it never contains the pairing secret or request signatures.
+Incluye estado del servicio, comprobación HTTP, red, regla de firewall, eventos recientes y trazas. Contiene IP locales y rutas; **excluye el código de emparejado, las firmas y `config.json`**. No envía nada automáticamente. Una sección inaccesible queda registrada sin impedir las demás.
 
-Open the tray, copy the `jhcp1_...` pairing code, then edit the device in Jona Homelab and select `Companion`. Paste the code and save. The code is never returned by the homelab API.
+Archivos en `C:\ProgramData\JonaHomelabCompanion`:
 
-## Protocol
+- `service.log`: JSON por línea con fecha UTC, PID, arranque/parada, llamadas autenticadas, rechazos, resultado del apagado y actualizaciones. Rota a `service.log.1` al alcanzar 2 MiB.
+- `install.log`: pasos y errores del instalador; conserva la ejecución anterior como `.1`.
+- `crash.log`: errores fatales del proceso; conserva el fallo anterior como `.1`.
 
-The service listens on IPv4 port `47654`. `GET /v1/status` and `POST /v1/shutdown` use HMAC-SHA256 signatures with the method, path, timestamp, nonce and SHA-256 body hash. Timestamps allow ±60 seconds; nonces are single-use. Responses are signed too. Only private IPv4 clients are accepted. Shutdown returns `202` and runs `shutdown.exe /s /t 0`; forced shutdown adds `/f`. A local ten-second cooldown prevents repeated requests.
+`shutdown.failed` incluye el error de Windows. `shutdown.accepted` significa que Windows aceptó la orden, no que el equipo ya esté apagado. Un fallo de ping tampoco demuestra apagado. Si no llega ninguna petición al log, revisa IP, perfil de red y firewall. `request.rejected` distingue firma/reloj, dirección no privada y nonce repetido.
 
-The named pipe is local-only and exposes tray operations (`get-info`, `rotate`, `check-update`). The secret is generated once, protected with machine DPAPI and never logged.
+## Paquetes locales y actualizaciones
 
-## Updates
+Las versiones `local-...` permiten probar una reparación y no se actualizan automáticamente a una release anterior. Las versiones publicadas `main-...` mantienen la comprobación diaria de actualizaciones, checksum y rollback. Una comprobación fallida se registra y la bandeja muestra el error.
 
-The service checks the latest GitHub release after startup and every 24 hours. It downloads the Windows ZIP over HTTPS, validates the `main-<sha>` version, checksum, archive paths and required files, stages it under the versioned installation directory and restarts the service. A failed local health check restores the previous release. Configuration and pairing code remain in `ProgramData`. The same Go executable runs service, tray and external updater modes.
+Para generar un ZIP desde el código, con Go instalado, sin compilar la web:
 
-## Uninstall
+```powershell
+.\companion\package.ps1
+```
+
+El ZIP y su SHA256 quedan en `artifacts`. El binario no está firmado con Authenticode.
+
+## Pruebas sin apagar el PC
+
+La consola solo permite simulación, escucha únicamente en localhost y guarda sus datos en una carpeta aislada:
+
+```powershell
+.\JonaHomelab.Companion.exe --console --simulate-shutdown C:\Temp\companion-prueba
+```
+
+El código temporal queda en `C:\Temp\companion-prueba\JonaHomelabCompanion\pairing-code.txt`. `/health` indica `simulated: true`; las trazas usan `shutdown.simulated` o `power.simulated`. Este modo no instala servicios, no modifica firewall y nunca ejecuta apagado, suspensión ni hibernación reales. No lo uses como sustituto de la prueba del servicio instalado.
+
+## Desinstalar
+
+En PowerShell como administrador:
 
 ```powershell
 .\uninstall.ps1
 ```
 
-Configuration stays in `ProgramData` for a later reinstall. Use `-PurgeData` only when that state and pairing code must be removed.
+Conserva la configuración. Añade `-PurgeData` solo para borrar también el emparejado y las trazas.

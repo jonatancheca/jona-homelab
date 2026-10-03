@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { normalizeMac, parseDeviceInput, parseDeviceId, parseShutdownInput } from '../../server/core/validation.ts'
+import { normalizeMac, parseDeviceInput, parseDeviceId, parsePowerInput, parseShutdownInput } from '../../server/core/validation.ts'
 
 const valid = { name: 'Living room PC', mac: 'aabbccddeeff', address: '192.168.1.25', sshUser: 'jona-homelab-remote' }
 
@@ -64,6 +64,13 @@ test('shutdown accepts one boolean and rejects extra command fields', () => {
   assert.deepEqual(parseShutdownInput({ force: true }), { force: true })
   for (const value of [null, {}, { force: 'true' }, { force: false, command: 'whoami' }]) {
     assert.throws(() => parseShutdownInput(value), { statusCode: 400 })
+  }
+})
+
+test('power actions validate the allowlist and never force sleep or hibernate', () => {
+  for (const action of ['shutdown', 'sleep', 'hibernate']) assert.deepEqual(parsePowerInput({ action, force: false }), { action, force: false })
+  for (const value of [null, [], {}, { action: 'reboot', force: false }, { action: 'sleep', force: true }, { action: 'hibernate', force: true }, { action: 'sleep', force: null }, { action: 'sleep' }, { action: 'shutdown', force: false, command: 'calc.exe' }]) {
+    assert.throws(() => parsePowerInput(value), { statusCode: 400 })
   }
 })
 

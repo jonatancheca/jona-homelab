@@ -1,5 +1,5 @@
 import { isIPv4 } from 'node:net'
-import type { Device, DeviceInput, RemoteMethod } from '../../shared/types/device.ts'
+import type { Device, DeviceInput, PowerInput, RemoteMethod } from '../../shared/types/device.ts'
 import { AppError } from './errors.ts'
 
 export function normalizeMac(value: unknown): string {
@@ -116,4 +116,16 @@ export function parseDeviceId(value: string | undefined): string {
     throw new AppError(404, 'Device not found.')
   }
   return value
+}
+
+export function parsePowerInput(value: unknown): PowerInput {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new AppError(400, 'Invalid power action.')
+  const input = value as Record<string, unknown>
+  if (Object.keys(input).some(key => key !== 'action' && key !== 'force')
+    || !['shutdown', 'sleep', 'hibernate'].includes(String(input.action))
+    || typeof input.action !== 'string' || typeof input.force !== 'boolean'
+    || (input.action !== 'shutdown' && input.force)) {
+    throw new AppError(400, 'Choose shutdown, sleep or hibernate. Force is only allowed for shutdown.')
+  }
+  return { action: input.action as PowerInput['action'], force: input.force }
 }

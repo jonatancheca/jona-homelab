@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { DeviceStore } from '../../server/core/database.ts'
-import { shutdownDevice, wakeDevice } from '../../server/core/service.ts'
+import { powerDevice, shutdownDevice, wakeDevice } from '../../server/core/service.ts'
 
 const input = { name: 'Server', mac: 'AA:BB:CC:DD:EE:FF', address: '192.168.1.25', sshUser: 'jona-homelab-remote' }
 
@@ -284,6 +284,22 @@ test('stores Companion secret privately, preserves it on blank edit and clears i
     assert.throws(() => store.companionSecret(companion.id), { statusCode: 409 })
   }
   finally { store.close() }
+})
+
+test('sleep and hibernate share shutdown cooldown and reject SSH targets', async () => {
+  for (const action of ['sleep', 'hibernate'] as const) {
+    const store = new DeviceStore(':memory:')
+    try {
+      const device = store.create({ ...input, remoteMethod: 'companion', sshUser: null, companionCode: 'jhcp1_' + 'B'.repeat(43) })
+      let received = ''
+      await powerDevice(store, device.id, { action, force: false }, async (target, command) => { assert.equal(target.id, device.id); received = command.action })
+      assert.equal(received, action)
+      await assert.rejects(shutdownDevice(store, device.id, false, async () => {}), { statusCode: 429 })
+      await assert.rejects(powerDevice(store, device.id, { action, force: false }, async () => {}), { statusCode: 429 })
+      const sshDevice = store.create({ ...input, mac: 'AA:BB:CC:DD:EE:19' })
+      await assert.rejects(powerDevice(store, sshDevice.id, { action, force: false }, async () => { throw new Error('must not send') }), { statusCode: 409 })
+    } finally { store.close() }
+  }
 })
 
 test('stores Wake-on-LAN-only devices without remote credentials and blocks shutdown', () => {

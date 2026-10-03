@@ -26,6 +26,7 @@ func runPipeServer(ctx context.Context, state *runtimeState) {
 	for ctx.Err() == nil {
 		handle, err := createPipe()
 		if err != nil {
+			writeServiceLog("pipe create: " + err.Error())
 			time.Sleep(500 * time.Millisecond)
 			continue
 		}
@@ -34,7 +35,13 @@ func runPipeServer(ctx context.Context, state *runtimeState) {
 			request, readErr := readPipeLine(handle, 64*1024)
 			if readErr == nil {
 				response := handlePipeRequest(ctx, state, request)
-				_ = writePipeLine(handle, response)
+				if err := writePipeLine(handle, response); err == nil {
+					// Wait for the client to consume the reply before disconnecting.
+					// Older clients close after reading; new ones acknowledge it.
+					_, _ = readPipeLine(handle, 16)
+				} else {
+					writeServiceLog("pipe write: " + err.Error())
+				}
 			}
 		}
 		_ = windows.DisconnectNamedPipe(handle)
@@ -59,8 +66,8 @@ func createPipe() (windows.Handle, error) {
 	}
 	handle, err := windows.CreateNamedPipe(
 		name,
-		windows.PIPE_ACCESS_DUPLEX,
-		windows.PIPE_TYPE_BYTE|windows.PIPE_READMODE_BYTE|windows.PIPE_WAIT,
+		windows.PIPE_ACCESS_DUPLEX|windows.FILE_FLAG_OVERLAPPED,
+		windows.PIPE_TYPE_BYTE|windows.PIPE_READMODE_BYTE|windows.PIPE_WAIT|windows.PIPE_REJECT_REMOTE_CLIENTS,
 		1,
 		64*1024,
 		64*1024,
@@ -72,20 +79,42 @@ func createPipe() (windows.Handle, error) {
 }
 
 func connectPipe(ctx context.Context, handle windows.Handle) bool {
-	result := make(chan error, 1)
-	go func() {
-		err := windows.ConnectNamedPipe(handle, nil)
+	_, err := pipeIO(ctx, handle, func(overlapped *windows.Overlapped) (uint32, error) {
+		err := windows.ConnectNamedPipe(handle, overlapped)
 		if errors.Is(err, windows.ERROR_PIPE_CONNECTED) {
 			err = nil
 		}
-		result <- err
-	}()
-	select {
-	case err := <-result:
-		return err == nil
-	case <-ctx.Done():
-		_ = windows.CloseHandle(handle)
-		return false
+		return 0, err
+	})
+	return err == nil
+}
+
+// Keep buffers and OVERLAPPED alive until cancellation has completed.
+func pipeIO(ctx context.Context, handle windows.Handle, start func(*windows.Overlapped) (uint32, error)) (uint32, error) {
+	event, err := windows.CreateEvent(nil, 1, 0, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer windows.CloseHandle(event)
+	overlapped := &windows.Overlapped{HEvent: event}
+	count, err := start(overlapped)
+	if !errors.Is(err, windows.ERROR_IO_PENDING) {
+		return count, err
+	}
+	for {
+		result, waitErr := windows.WaitForSingleObject(event, 100)
+		if result == windows.WAIT_OBJECT_0 && waitErr == nil {
+			err = windows.GetOverlappedResult(handle, overlapped, &count, false)
+			return count, err
+		}
+		if waitErr != nil || ctx.Err() != nil {
+			_ = windows.CancelIoEx(handle, overlapped)
+			_ = windows.GetOverlappedResult(handle, overlapped, &count, true)
+			if waitErr != nil {
+				return count, waitErr
+			}
+			return count, ctx.Err()
+		}
 	}
 }
 
@@ -104,13 +133,17 @@ func handlePipeRequest(ctx context.Context, state *runtimeState, request string)
 		}
 		return marshalLocal(pipeInfo{Ready: true, Version: releaseVersion(), Port: companionPort, PairingCode: code, LastServerCall: state.config.lastServerCall()})
 	case "rotate":
+		logEvent("pairing.rotate", nil)
 		code, err := state.config.rotateSecret()
 		if err != nil {
 			return localError(err)
 		}
 		return marshalLocal(pipeInfo{Ready: true, Version: releaseVersion(), Port: companionPort, PairingCode: code, LastServerCall: state.config.lastServerCall()})
 	case "check-update":
-		scheduled := state.updates.checkAndSchedule(ctx)
+		scheduled, err := state.updates.checkAndSchedule(ctx)
+		if err != nil {
+			return localError(err)
+		}
 		return marshalLocal(struct {
 			Scheduled bool `json:"scheduled"`
 		}{scheduled})
@@ -137,11 +170,17 @@ func marshalLocal(value any) string {
 }
 
 func readPipeLine(handle windows.Handle, limit int) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 	content := make([]byte, 0, 1024)
 	buffer := make([]byte, 1024)
 	for len(content) < limit {
-		var read uint32
-		if err := windows.ReadFile(handle, buffer, &read, nil); err != nil {
+		read, err := pipeIO(ctx, handle, func(overlapped *windows.Overlapped) (uint32, error) {
+			var count uint32
+			err := windows.ReadFile(handle, buffer, &count, overlapped)
+			return count, err
+		})
+		if err != nil {
 			return "", err
 		}
 		if read == 0 {
@@ -161,10 +200,16 @@ func readPipeLine(handle windows.Handle, limit int) (string, error) {
 }
 
 func writePipeLine(handle windows.Handle, content string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 	data := append([]byte(content), '\n')
 	for len(data) > 0 {
-		var written uint32
-		if err := windows.WriteFile(handle, data, &written, nil); err != nil {
+		written, err := pipeIO(ctx, handle, func(overlapped *windows.Overlapped) (uint32, error) {
+			var count uint32
+			err := windows.WriteFile(handle, data, &count, overlapped)
+			return count, err
+		})
+		if err != nil {
 			return err
 		}
 		if written == 0 {
@@ -206,6 +251,7 @@ func callPipeRaw(action string) ([]byte, error) {
 		if responseErr == nil {
 			response, responseReadErr := readPipeLine(handle, 64*1024)
 			if responseReadErr == nil {
+				_ = writePipeLine(handle, "ack")
 				var errorResponse struct {
 					Error string `json:"error"`
 				}
@@ -236,5 +282,5 @@ func openPipe() (windows.Handle, error) {
 	if err != nil {
 		return windows.InvalidHandle, err
 	}
-	return windows.CreateFile(name, windows.GENERIC_READ|windows.GENERIC_WRITE, 0, nil, windows.OPEN_EXISTING, 0, 0)
+	return windows.CreateFile(name, windows.GENERIC_READ|windows.GENERIC_WRITE, 0, nil, windows.OPEN_EXISTING, windows.FILE_FLAG_OVERLAPPED, 0)
 }

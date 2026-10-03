@@ -156,7 +156,9 @@ func (s *configStore) rotateSecret() (string, error) {
 func (s *configStore) recordServerCall(now time.Time) {
 	s.mu.Lock()
 	s.cfg.LastServerCall = now.UTC().Format(time.RFC3339Nano)
-	_ = s.saveLocked()
+	if err := s.saveLocked(); err != nil {
+		writeServiceLog("save last server call: " + err.Error())
+	}
 	s.mu.Unlock()
 }
 

@@ -131,6 +131,8 @@ El servicio funciona sin root, sin capacidades especiales y con el sistema de ar
 
 Descarga `jona-homelab-companion-win-x64.zip` y su `.sha256` desde la misma release. Verifica el checksum, extrae el ZIP y ejecuta `install.ps1` como administrador. El instalador crea el servicio automático, la tarea de bandeja, el firewall del perfil privado (TCP 47654) y el estado protegido en `C:\ProgramData\JonaHomelabCompanion`.
 
+El instalador comprueba la API antes de confirmar éxito. Para investigar problemas, ejecuta `diagnostics.ps1` desde el paquete: genera un ZIP en el Escritorio con trazas rotativas, estado, firewall y eventos, sin incluir el código de emparejado ni `config.json`. Consulta [la guía del Companion](companion/README.md) para instalar, probar y compartir el diagnóstico. Las compilaciones locales se generan con `companion/package.ps1` y no se actualizan automáticamente.
+
 Abre la bandeja, copia el código `jhcp1_...` y edita el equipo en el panel: selecciona `Companion`, pega el código y guarda. El código no aparece en `GET /api/devices`; para cambiarlo, rota el código en la bandeja y vuelve a pegarlo. La API firma solicitudes y respuestas con HMAC, rechaza nonces repetidos y solo acepta clientes IPv4 privados.
 
 El servicio Go comprueba releases al arrancar y cada 24 horas. Descarga el ZIP por HTTPS, valida versión, checksum, rutas y archivos requeridos, y hace rollback automático si la versión nueva no supera `/health`. La bandeja muestra el código de emparejado y la última llamada autenticada del servidor; usa `Start-ScheduledTask -TaskName JonaHomelabCompanionTray` para relanzarla sin dejar una consola abierta. Desinstala con `uninstall.ps1`; la configuración queda preservada salvo usar `-PurgeData`. El paquete no tiene firma Authenticode y SmartScreen puede mostrar un aviso.
@@ -225,6 +227,7 @@ Cloudflare Access debe proteger todas las rutas de negocio. El backend no valida
 | `POST /api/devices/:id/wake` | `{}`; mensaje de envío, equipo y `retryAfter` |
 | `GET /api/devices/status` | `networkReachable`, `remoteReady`, `remoteMethod` y `checkedAt` por equipo |
 | `POST /api/devices/:id/shutdown` | `{ "force": false }`; aceptación y `retryAfter` |
+| `POST /api/devices/:id/power` | `{ "action": "shutdown"/"sleep"/"hibernate", "force": false }`; suspensión e hibernación requieren Companion actualizado, comparten cooldown con apagado |
 | `GET /api/session` | Modo `development` o `access`, sin datos de identidad |
 | `GET /api/health` | Salud mínima, sin datos privados |
 

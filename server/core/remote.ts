@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process'
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
-import type { Device, DeviceStatus } from '../../shared/types/device.ts'
+import type { Device, DeviceStatus, PowerInput } from '../../shared/types/device.ts'
 import type { Settings } from './config.ts'
 import { AppError } from './errors.ts'
 
@@ -11,7 +11,7 @@ const COMPANION_TIMEOUT_MS = 6000
 const MAX_OUTPUT_BYTES = 64 * 1024
 
 export type CommandRunner = (command: string, args: string[], timeoutMs: number) => Promise<boolean>
-export type CompanionCommand = 'status' | 'shutdown-safe' | 'shutdown-force'
+export type CompanionCommand = 'status' | 'shutdown-safe' | 'shutdown-force' | 'sleep' | 'hibernate'
 export type CompanionRunner = (device: Device, secret: string, command: CompanionCommand) => Promise<boolean>
 
 export const runCommand: CommandRunner = (command, args, timeoutMs) => new Promise((resolve) => {
@@ -76,9 +76,10 @@ function equalSignature(actual: string | null, expected: string): boolean {
 
 export async function requestCompanion(device: Device, secret: string, command: CompanionCommand, fetcher: typeof fetch = fetch, now = Date.now): Promise<boolean> {
   if (!device.address) throw new AppError(409, 'Configure the device private IPv4 address or machine name first.')
-  const path = command === 'status' ? '/v1/status' : '/v1/shutdown'
+  const suspend = command === 'sleep' || command === 'hibernate'
+  const path = command === 'status' ? '/v1/status' : suspend ? '/v1/power' : '/v1/shutdown'
   const method = command === 'status' ? 'GET' : 'POST'
-  const body = command === 'status' ? '' : JSON.stringify({ force: command === 'shutdown-force' })
+  const body = command === 'status' ? '' : suspend ? JSON.stringify({ action: command, force: false }) : JSON.stringify({ force: command === 'shutdown-force' })
   const timestamp = Math.floor(now() / 1000)
   const nonce = randomBytes(16).toString('base64url')
   const controller = new AbortController()
@@ -100,11 +101,17 @@ export async function requestCompanion(device: Device, secret: string, command: 
     const responseBody = await response.text()
     const responseSignature = response.headers.get('x-jona-response-signature')
     if (!equalSignature(responseSignature, companionResponseSignature(secret, response.status, nonce, responseBody))) return false
-    if (!response.ok) return false
+    if (!response.ok) {
+      if (suspend && response.status === 409) throw new AppError(409, 'Windows does not support or has not enabled this power state. Check Companion diagnostics.')
+      return false
+    }
     const payload = JSON.parse(responseBody) as { ready?: unknown, accepted?: unknown }
     return command === 'status' ? payload.ready === true : payload.accepted === true
   }
-  catch { return false }
+  catch (error) {
+    if (error instanceof AppError && error.statusCode === 409) throw error
+    return false
+  }
   finally { clearTimeout(timeout) }
 }
 
@@ -168,4 +175,12 @@ export async function sendShutdownCommand(
   if (!ssh) throw new AppError(503, 'SSH shutdown is not configured on the homelab server.')
   const accepted = await runner('ssh', sshArguments(device, ssh, force ? 'shutdown-force' : 'shutdown-safe'), SSH_TIMEOUT_MS)
   if (!accepted) throw new Error('SSH command failed')
+}
+
+export async function sendPowerCommand(device: Device, input: PowerInput, ssh: Settings['ssh'], secret?: string, companionRunner: CompanionRunner = requestCompanion): Promise<void> {
+  if (input.action === 'shutdown') return sendShutdownCommand(device, input.force, ssh, runCommand, secret, companionRunner)
+  if (device.remoteMethod !== 'companion') throw new AppError(409, 'Sleep and hibernate require Companion.')
+  if (input.force) throw new AppError(400, 'Force is only allowed for shutdown.')
+  if (!secret) throw new AppError(503, 'Companion is not configured on the homelab server.')
+  if (!await companionRunner(device, secret, input.action)) throw new Error('Companion power command failed')
 }

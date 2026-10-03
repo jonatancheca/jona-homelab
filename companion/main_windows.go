@@ -10,6 +10,11 @@ import (
 func main() {
 	args := os.Args[1:]
 	switch firstArg(args) {
+	case "--console":
+		if err := runConsole(args[1:]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
 	case "--tray":
 		if err := runTray(); err != nil {
 			showTrayError(err)
@@ -18,12 +23,13 @@ func main() {
 	case "--update":
 		os.Exit(runUpdater(args[1:]))
 	case "--service", "":
+		captureCrashLog()
 		if err := runService(); err != nil {
 			writeServiceLog("dispatcher: " + err.Error())
 			os.Exit(1)
 		}
 	default:
-		fmt.Fprintln(os.Stderr, "Usage: JonaHomelab.Companion.exe [--service|--tray|--update]")
+		fmt.Fprintln(os.Stderr, "Usage: JonaHomelab.Companion.exe [--service|--tray|--update|--console --simulate-shutdown <directory>]")
 		os.Exit(2)
 	}
 }

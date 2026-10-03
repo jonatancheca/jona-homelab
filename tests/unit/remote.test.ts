@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import type { Device } from '../../shared/types/device.ts'
-import { checkDeviceStatus, companionRequestSignature, companionResponseSignature, pingArguments, requestCompanion, sendShutdownCommand, sshArguments, type CommandRunner } from '../../server/core/remote.ts'
+import { checkDeviceStatus, companionRequestSignature, companionResponseSignature, pingArguments, requestCompanion, sendPowerCommand, sendShutdownCommand, sshArguments, type CommandRunner, type CompanionCommand } from '../../server/core/remote.ts'
 
 const device: Device = {
   id: 'device-id',
@@ -121,9 +121,29 @@ test('Companion method uses authenticated client for status and shutdown', async
   const secret = Buffer.from(new Uint8Array(32).fill(8)).toString('base64url')
   const calls: string[] = []
   const companion = { ...device, remoteMethod: 'companion' as const }
-  const runner = async (_target: Device, _secret: string, command: 'status' | 'shutdown-safe' | 'shutdown-force') => { calls.push(command); return true }
+  const runner = async (_target: Device, _secret: string, command: CompanionCommand) => { calls.push(command); return true }
   const status = await checkDeviceStatus(companion, ssh, async (command) => { if (command === 'ping') return false; throw new Error('SSH must not run') }, 'linux', secret, runner)
   assert.equal(status.remoteReady, true)
   await sendShutdownCommand(companion, true, ssh, async () => { throw new Error('SSH must not run') }, secret, runner)
   assert.deepEqual(calls, ['status', 'shutdown-force'])
+})
+
+test('sleep and hibernate use their signed endpoint and never fall back to shutdown or SSH', async () => {
+  const secret = Buffer.alloc(32, 9).toString('base64url')
+  for (const action of ['sleep', 'hibernate'] as const) {
+    const fetcher: typeof fetch = async (url, init) => {
+      assert.equal(String(url), 'http://192.168.1.25:47654/v1/power')
+      assert.deepEqual(JSON.parse(String(init?.body)), { action, force: false })
+      const headers = new Headers(init?.headers)
+      const nonce = headers.get('X-Jona-Nonce')!
+      assert.equal(headers.get('X-Jona-Signature'), companionRequestSignature(secret, 'POST', '/v1/power', Number(headers.get('X-Jona-Timestamp')), nonce, String(init?.body)))
+      const body = JSON.stringify({ accepted: true })
+      return new Response(body, { status: 202, headers: { 'X-Jona-Response-Signature': companionResponseSignature(secret, 202, nonce, body) } })
+    }
+    assert.equal(await requestCompanion(device, secret, action, fetcher), true)
+    const calls: CompanionCommand[] = []
+    await sendPowerCommand({ ...device, remoteMethod: 'companion' }, { action, force: false }, ssh, secret, async (_device, _secret, command) => { calls.push(command); return true })
+    assert.deepEqual(calls, [action])
+    await assert.rejects(sendPowerCommand(device, { action, force: false }, ssh, secret), { statusCode: 409 })
+  }
 })

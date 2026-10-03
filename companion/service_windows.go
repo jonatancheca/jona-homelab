@@ -6,9 +6,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
-	"os"
-	"path/filepath"
 	"time"
 
 	"golang.org/x/sys/windows/svc"
@@ -22,6 +21,7 @@ func runService() error {
 
 func (companionService) Execute(_ []string, requests <-chan svc.ChangeRequest, statuses chan<- svc.Status) (bool, uint32) {
 	statuses <- svc.Status{State: svc.StartPending, WaitHint: 5000}
+	logEvent("service.starting", map[string]any{"version": releaseVersion()})
 	config, err := loadConfig()
 	if err != nil {
 		writeServiceLog("startup: " + err.Error())
@@ -29,13 +29,20 @@ func (companionService) Execute(_ []string, requests <-chan svc.ChangeRequest, s
 		return false, 1
 	}
 	state := newRuntimeState(config)
+	listener, err := net.Listen("tcp4", fmt.Sprintf("0.0.0.0:%d", companionPort))
+	if err != nil {
+		writeServiceLog("listen: " + err.Error())
+		return false, 1
+	}
+	defer listener.Close()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	serverErrors := make(chan error, 1)
-	go func() { serverErrors <- runHTTP(ctx, state) }()
+	go func() { serverErrors <- runHTTP(ctx, state, listener) }()
 	go runPipeServer(ctx, state)
 	go runUpdateLoop(ctx, state.updates)
 	statuses <- svc.Status{State: svc.Running, Accepts: svc.AcceptStop | svc.AcceptShutdown}
+	logEvent("service.running", map[string]any{"port": companionPort, "version": releaseVersion()})
 
 	for {
 		select {
@@ -45,6 +52,10 @@ func (companionService) Execute(_ []string, requests <-chan svc.ChangeRequest, s
 				statuses <- svc.Status{State: svc.Running, Accepts: svc.AcceptStop | svc.AcceptShutdown}
 			case svc.Stop, svc.Shutdown:
 				statuses <- svc.Status{State: svc.StopPending, WaitHint: 10000}
+				logEvent("service.stopping", map[string]any{"command": request.Cmd})
+				cancel()
+				<-serverErrors
+				logEvent("service.stopped", nil)
 				return false, 0
 			}
 		case err := <-serverErrors:
@@ -58,23 +69,12 @@ func (companionService) Execute(_ []string, requests <-chan svc.ChangeRequest, s
 	}
 }
 
-func writeServiceLog(message string) {
-	if message == "" {
-		return
-	}
-	path := filepath.Join(dataDirectory(), "service.log")
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return
-	}
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
-	if err != nil {
-		return
-	}
-	defer file.Close()
-	_, _ = fmt.Fprintf(file, "%s %s\n", time.Now().UTC().Format(time.RFC3339Nano), message)
-}
-
 func runUpdateLoop(ctx context.Context, updates *updateCoordinator) {
+	// Local repair packages must not silently replace themselves with an older release.
+	if !releaseTagPattern.MatchString(releaseVersion()) {
+		logEvent("update.disabled", map[string]any{"reason": "local build"})
+		return
+	}
 	select {
 	case <-time.After(5 * time.Second):
 		updates.checkAndSchedule(ctx)
