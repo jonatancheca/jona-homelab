@@ -37,6 +37,7 @@ func (r *runtimeState) handler() http.Handler {
 	mux.HandleFunc("/v1/status", r.status)
 	mux.HandleFunc("/v1/shutdown", r.shutdownRequest)
 	mux.HandleFunc("/v1/power", r.powerRequest)
+	mux.HandleFunc("/v1/update", r.updateRequest)
 	return http.MaxBytesHandler(mux, 64*1024)
 }
 
@@ -61,12 +62,49 @@ func (r *runtimeState) status(writer http.ResponseWriter, request *http.Request)
 	_ = body
 	r.config.recordServerCall(time.Now())
 	logEvent("status.ok", map[string]any{"client": remoteIP(request).String()})
-	responseBody, _ := json.Marshal(struct {
-		Ready    bool   `json:"ready"`
-		Version  string `json:"version"`
-		Accepted bool   `json:"accepted"`
-	}{true, releaseVersion(), true})
+	responseBody, _ := json.Marshal(map[string]any{
+		"ready": true, "version": releaseVersion(), "accepted": true,
+		"remoteUpdate": !r.simulated, "update": readUpdateStatus(),
+	})
 	r.writeSigned(writer, http.StatusOK, nonce, responseBody)
+}
+
+func (r *runtimeState) updateRequest(writer http.ResponseWriter, request *http.Request) {
+	if request.Method != http.MethodPost {
+		writePlainStatus(writer, http.StatusMethodNotAllowed)
+		return
+	}
+	body, nonce, status, ok := r.authenticate(request, true)
+	if !ok {
+		writePlainStatus(writer, status)
+		return
+	}
+	var input map[string]json.RawMessage
+	if json.Unmarshal([]byte(body), &input) != nil || input == nil || len(input) != 0 {
+		r.writeSigned(writer, http.StatusBadRequest, nonce, []byte(`{"error":"Expected an empty object."}`))
+		return
+	}
+	if r.simulated {
+		r.writeSigned(writer, http.StatusConflict, nonce, []byte(`{"error":"Updates are disabled in simulation."}`))
+		return
+	}
+	r.config.recordServerCall(time.Now())
+	result, err := r.updates.checkAndSchedule(request.Context())
+	if err != nil {
+		response, _ := json.Marshal(map[string]string{"error": err.Error()})
+		status = http.StatusBadGateway
+		if errors.Is(err, errUpdateChecking) {
+			status = http.StatusConflict
+		}
+		r.writeSigned(writer, status, nonce, response)
+		return
+	}
+	response, _ := json.Marshal(result)
+	status = http.StatusOK
+	if result.Scheduled {
+		status = http.StatusAccepted
+	}
+	r.writeSigned(writer, status, nonce, response)
 }
 
 func (r *runtimeState) shutdownRequest(writer http.ResponseWriter, request *http.Request) {
@@ -289,7 +327,7 @@ func runHTTP(ctx context.Context, state *runtimeState, listener net.Listener) er
 		Handler:           state.handler(),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
-		WriteTimeout:      15 * time.Second,
+		WriteTimeout:      40 * time.Second,
 		IdleTimeout:       30 * time.Second,
 	}
 	errorChannel := make(chan error, 1)

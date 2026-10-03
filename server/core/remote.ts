@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process'
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
-import type { Device, DeviceStatus, PowerInput } from '../../shared/types/device.ts'
+import type { CompanionOperation, Device, DeviceStatus, PowerInput } from '../../shared/types/device.ts'
 import type { Settings } from './config.ts'
 import { AppError } from './errors.ts'
 
@@ -13,6 +13,8 @@ const MAX_OUTPUT_BYTES = 64 * 1024
 export type CommandRunner = (command: string, args: string[], timeoutMs: number) => Promise<boolean>
 export type CompanionCommand = 'status' | 'shutdown-safe' | 'shutdown-force' | 'sleep' | 'hibernate'
 export type CompanionRunner = (device: Device, secret: string, command: CompanionCommand) => Promise<boolean>
+export interface CompanionReply { ready: boolean, version: string | null, remoteUpdate: boolean, operation?: CompanionOperation }
+export type CompanionStatusRunner = (device: Device, secret: string, command: CompanionCommand) => Promise<boolean | CompanionReply>
 
 export const runCommand: CommandRunner = (command, args, timeoutMs) => new Promise((resolve) => {
   execFile(command, args, {
@@ -74,16 +76,13 @@ function equalSignature(actual: string | null, expected: string): boolean {
   return timingSafeEqual(Buffer.from(actual.toLowerCase(), 'ascii'), Buffer.from(expected, 'ascii'))
 }
 
-export async function requestCompanion(device: Device, secret: string, command: CompanionCommand, fetcher: typeof fetch = fetch, now = Date.now): Promise<boolean> {
+export async function requestCompanionPayload(device: Device, secret: string, path: string, body = '', fetcher: typeof fetch = fetch, now = Date.now, timeoutMs = COMPANION_TIMEOUT_MS): Promise<Record<string, unknown>> {
   if (!device.address) throw new AppError(409, 'Configure the device private IPv4 address or machine name first.')
-  const suspend = command === 'sleep' || command === 'hibernate'
-  const path = command === 'status' ? '/v1/status' : suspend ? '/v1/power' : '/v1/shutdown'
-  const method = command === 'status' ? 'GET' : 'POST'
-  const body = command === 'status' ? '' : suspend ? JSON.stringify({ action: command, force: false }) : JSON.stringify({ force: command === 'shutdown-force' })
+  const method = body ? 'POST' : 'GET'
   const timestamp = Math.floor(now() / 1000)
   const nonce = randomBytes(16).toString('base64url')
   const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), COMPANION_TIMEOUT_MS)
+  const timeout = setTimeout(() => controller.abort(), timeoutMs)
   try {
     const signature = companionRequestSignature(secret, method, path, timestamp, nonce, body)
     const response = await fetcher(`http://${device.address}:${COMPANION_PORT}${path}`, {
@@ -97,22 +96,55 @@ export async function requestCompanion(device: Device, secret: string, command: 
       },
       body: body || undefined,
       signal: controller.signal,
+      redirect: 'error',
     })
     const responseBody = await response.text()
     const responseSignature = response.headers.get('x-jona-response-signature')
-    if (!equalSignature(responseSignature, companionResponseSignature(secret, response.status, nonce, responseBody))) return false
+    if (responseBody.length > MAX_OUTPUT_BYTES || !equalSignature(responseSignature, companionResponseSignature(secret, response.status, nonce, responseBody))) throw new AppError(502, 'Companion devolvió una respuesta sin firma válida.')
+    const payload = JSON.parse(responseBody) as Record<string, unknown>
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new AppError(502, 'Respuesta de Companion no válida.')
     if (!response.ok) {
-      if (suspend && response.status === 409) throw new AppError(409, 'Windows does not support or has not enabled this power state. Check Companion diagnostics.')
-      return false
+      if (path === '/v1/power' && response.status === 409) throw new AppError(409, 'Windows does not support or has not enabled this power state. Check Companion diagnostics.')
+      throw new AppError(response.status === 409 ? 409 : 502, typeof payload.error === 'string' ? payload.error.slice(0, 500) : 'Companion no aceptó la petición.')
     }
-    const payload = JSON.parse(responseBody) as { ready?: unknown, accepted?: unknown }
+    return payload
+  }
+  finally { clearTimeout(timeout) }
+}
+
+export async function requestCompanion(device: Device, secret: string, command: CompanionCommand, fetcher: typeof fetch = fetch, now = Date.now): Promise<boolean> {
+  const suspend = command === 'sleep' || command === 'hibernate'
+  const path = command === 'status' ? '/v1/status' : suspend ? '/v1/power' : '/v1/shutdown'
+  const body = command === 'status' ? '' : suspend ? JSON.stringify({ action: command, force: false }) : JSON.stringify({ force: command === 'shutdown-force' })
+  try {
+    const payload = await requestCompanionPayload(device, secret, path, body, fetcher, now)
     return command === 'status' ? payload.ready === true : payload.accepted === true
   }
   catch (error) {
     if (error instanceof AppError && error.statusCode === 409) throw error
     return false
   }
-  finally { clearTimeout(timeout) }
+}
+
+export async function readCompanionStatus(device: Device, secret: string, fetcher: typeof fetch = fetch): Promise<CompanionReply> {
+  const payload = await requestCompanionPayload(device, secret, '/v1/status', '', fetcher)
+  const version = typeof payload.version === 'string' && /^(main-[a-f0-9]{12}|local-[a-z0-9-]+|dev)$/.test(payload.version) ? payload.version : null
+  let operation: CompanionOperation | undefined
+  if (payload.update && typeof payload.update === 'object') {
+    const value = payload.update as Record<string, unknown>
+    if (typeof value.phase === 'string' && ['idle', 'checking', 'scheduled', 'downloading', 'verifying', 'installing', 'restarting', 'succeeded', 'failed', 'rolled-back'].includes(value.phase)) {
+      operation = { phase: value.phase as CompanionOperation['phase'],
+        targetVersion: typeof value.targetVersion === 'string' && /^main-[a-f0-9]{12}$/.test(value.targetVersion) ? value.targetVersion : undefined,
+        error: typeof value.error === 'string' ? value.error.slice(0, 500) : undefined,
+        updatedAt: typeof value.updatedAt === 'string' ? value.updatedAt : undefined }
+    }
+  }
+  return { ready: payload.ready === true, version, remoteUpdate: payload.remoteUpdate === true, operation }
+}
+
+const readStatus: CompanionStatusRunner = async (device, secret) => {
+  try { return await readCompanionStatus(device, secret) }
+  catch { return false }
 }
 
 export async function checkDeviceStatus(
@@ -121,7 +153,7 @@ export async function checkDeviceStatus(
   runner: CommandRunner = runCommand,
   platform: NodeJS.Platform = process.platform,
   companionSecret?: string,
-  companionRunner: CompanionRunner = requestCompanion,
+  companionRunner: CompanionStatusRunner = readStatus,
 ): Promise<DeviceStatus> {
   const remoteMethod = device.remoteMethod || 'ssh'
   const network = device.address
@@ -132,8 +164,14 @@ export async function checkDeviceStatus(
     : remoteMethod === 'ssh' && ssh && device.address && device.sshUser
     ? runner('ssh', sshArguments(device, ssh, 'status'), SSH_TIMEOUT_MS)
     : Promise.resolve(false)
-  const [networkReachable, remoteReady] = await Promise.all([network, remote])
-  return { deviceId: device.id, networkReachable, remoteReady, remoteMethod, checkedAt: new Date().toISOString() }
+  const [networkReachable, reply] = await Promise.all([network, remote])
+  const remoteReady = typeof reply === 'boolean' ? reply : reply.ready
+  const companion = remoteMethod === 'companion' ? {
+    version: typeof reply === 'object' ? reply.version : null, latestVersion: null,
+    remoteUpdate: typeof reply === 'object' && reply.remoteUpdate, state: 'unknown' as const,
+    operation: typeof reply === 'object' ? reply.operation : undefined,
+  } : undefined
+  return { deviceId: device.id, networkReachable, remoteReady, remoteMethod, checkedAt: new Date().toISOString(), ...(companion ? { companion } : {}) }
 }
 
 export async function checkDevicesStatus(

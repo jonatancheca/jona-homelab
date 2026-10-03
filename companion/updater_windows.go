@@ -11,6 +11,8 @@ import (
 	"errors"
 	"fmt"
 	"golang.org/x/sys/windows"
+	"golang.org/x/sys/windows/svc"
+	"golang.org/x/sys/windows/svc/mgr"
 	"io"
 	"net/http"
 	"os"
@@ -29,24 +31,42 @@ const (
 )
 
 var releaseTagPattern = regexp.MustCompile(`^main-[0-9a-f]{12}$`)
+var errUpdateChecking = errors.New("An update check is already in progress. Refresh status.")
 
 type updateCheckResult struct {
-	Scheduled  bool `json:"scheduled"`
-	LocalBuild bool `json:"localBuild,omitempty"`
+	Scheduled     bool   `json:"scheduled"`
+	LocalBuild    bool   `json:"localBuild,omitempty"`
+	TargetVersion string `json:"targetVersion,omitempty"`
 }
 
 type updateCoordinator struct {
-	config *configStore
-	mu     sync.Mutex
-	client *http.Client
+	config  *configStore
+	mu      sync.Mutex
+	client  *http.Client
+	version func() string
+	launch  func([]string) error
 }
 
 func newUpdateCoordinator(config *configStore) *updateCoordinator {
-	return &updateCoordinator{config: config, client: &http.Client{Timeout: 30 * time.Second}}
+	return &updateCoordinator{config: config, client: &http.Client{Timeout: 30 * time.Second}, version: releaseVersion, launch: launchUpdater}
+}
+
+func (u *updateCoordinator) checkAutomatically(ctx context.Context) {
+	state := readUpdateStatus()
+	// Do not immediately retry a bad release after rollback restarts the service.
+	if state.Phase == "failed" || state.Phase == "rolled-back" {
+		checked, err := time.Parse(time.RFC3339Nano, state.UpdatedAt)
+		if err == nil && time.Since(checked) < 24*time.Hour {
+			return
+		}
+	}
+	_, _ = u.checkAndSchedule(ctx)
 }
 
 func (u *updateCoordinator) checkAndSchedule(ctx context.Context) (result updateCheckResult, resultErr error) {
-	u.mu.Lock()
+	if !u.mu.TryLock() {
+		return updateCheckResult{}, errUpdateChecking
+	}
 	defer u.mu.Unlock()
 	defer func() {
 		fields := map[string]any{"scheduled": result.Scheduled, "localBuild": result.LocalBuild}
@@ -55,9 +75,23 @@ func (u *updateCoordinator) checkAndSchedule(ctx context.Context) (result update
 		}
 		logEvent("update.check", fields)
 	}()
-	if !releaseTagPattern.MatchString(releaseVersion()) {
+	if !releaseTagPattern.MatchString(u.version()) {
 		return updateCheckResult{LocalBuild: true}, nil
 	}
+	if state := readUpdateStatus(); state.active() {
+		if state.Phase == "checking" {
+			return updateCheckResult{}, errUpdateChecking
+		}
+		return updateCheckResult{Scheduled: true, TargetVersion: state.TargetVersion}, nil
+	}
+	if err := writeUpdateStatus(updateStatus{Phase: "checking"}); err != nil {
+		return result, err
+	}
+	defer func() {
+		if resultErr != nil {
+			_ = writeUpdateStatus(updateStatus{Phase: "failed", Error: resultErr.Error()})
+		}
+	}()
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.github.com/repos/"+githubRepository+"/releases/latest", nil)
 	if err != nil {
 		return result, err
@@ -78,10 +112,11 @@ func (u *updateCoordinator) checkAndSchedule(ctx context.Context) (result update
 			URL  string `json:"browser_download_url"`
 		} `json:"assets"`
 	}
-	if json.NewDecoder(response.Body).Decode(&release) != nil || !releaseTagPattern.MatchString(release.TagName) {
+	if json.NewDecoder(io.LimitReader(response.Body, 1024*1024)).Decode(&release) != nil || !releaseTagPattern.MatchString(release.TagName) {
 		return result, errors.New("invalid release metadata")
 	}
-	if release.TagName == releaseVersion() {
+	if release.TagName == u.version() {
+		_ = writeUpdateStatus(updateStatus{Phase: "idle"})
 		return result, nil
 	}
 	assets := make(map[string]string, len(release.Assets))
@@ -93,104 +128,226 @@ func (u *updateCoordinator) checkAndSchedule(ctx context.Context) (result update
 	if !archiveOK || !checksumOK || !validGithubDownload(archiveURL) || !validGithubDownload(checksumURL) {
 		return result, errors.New("release assets missing or invalid")
 	}
+	prefix := "https://github.com/" + githubRepository + "/releases/download/" + release.TagName + "/"
+	if archiveURL != prefix+archiveName || checksumURL != prefix+checksumName {
+		return result, errors.New("assets do not belong to the selected release")
+	}
+	if err := writeUpdateStatus(updateStatus{Phase: "scheduled", TargetVersion: release.TagName}); err != nil {
+		return result, err
+	}
+	if err := u.launch([]string{release.TagName, archiveURL, checksumURL, fmt.Sprint(os.Getpid())}); err != nil {
+		return result, err
+	}
+	return updateCheckResult{Scheduled: true, TargetVersion: release.TagName}, nil
+}
+
+func launchUpdater(args []string) error {
 	executable, err := os.Executable()
 	if err != nil {
-		return result, err
+		return err
 	}
-	command := exec.Command(executable, "--update", release.TagName, archiveURL, checksumURL, fmt.Sprint(os.Getpid()))
-	command.Dir = filepath.Dir(executable)
+	// Pin the worker to the old physical release, not the mutable current junction.
+	directory, err := finalDirectory(filepath.Dir(executable))
+	if err != nil {
+		return err
+	}
+	command := exec.Command(filepath.Join(directory, filepath.Base(executable)), append([]string{"--update"}, args...)...)
+	command.Dir = directory
 	if err := command.Start(); err != nil {
-		return result, err
+		return err
 	}
-	return updateCheckResult{Scheduled: true}, nil
+	go func() {
+		if err := command.Wait(); err != nil {
+			state := readUpdateStatus()
+			if state.active() {
+				_ = writeUpdateStatus(updateStatus{Phase: "failed", TargetVersion: args[0], Error: "Updater exited before completing. Check diagnostics."})
+			}
+			logEvent("update.worker-exit", map[string]any{"error": err.Error()})
+		}
+	}()
+	return nil
 }
 
 func runUpdater(args []string) (result int) {
 	logEvent("update.starting", nil)
 	defer func() { logEvent("update.finished", map[string]any{"exitCode": result}) }()
-	if len(args) != 4 || !releaseTagPattern.MatchString(args[0]) || !validGithubDownload(args[1]) || !validGithubDownload(args[2]) {
+	lock, lockErr := acquireUpdateLock()
+	if lockErr != nil {
+		logEvent("update.locked", map[string]any{"error": lockErr.Error()})
 		return 2
+	}
+	defer windows.CloseHandle(lock)
+	targetVersion := ""
+	if len(args) > 0 {
+		targetVersion = args[0]
+	}
+	stage := func(phase string) { _ = writeUpdateStatus(updateStatus{Phase: phase, TargetVersion: targetVersion}) }
+	fail := func(code int, step string, err error) int {
+		message := step
+		if err != nil {
+			message += ": " + err.Error()
+		}
+		_ = writeUpdateStatus(updateStatus{Phase: "failed", TargetVersion: targetVersion, Error: message})
+		logEvent("update.failed", map[string]any{"step": step, "error": message})
+		return code
+	}
+	if len(args) != 4 || !releaseTagPattern.MatchString(args[0]) || !validGithubDownload(args[1]) || !validGithubDownload(args[2]) {
+		return fail(2, "Invalid updater arguments", nil)
 	}
 	parentPID, err := parseInt(args[3])
 	if err != nil || parentPID <= 0 || parentPID > int64(^uint32(0)) {
-		return 2
+		return fail(2, "Invalid service process", err)
 	}
 	executable, err := os.Executable()
 	if err != nil {
-		return 2
+		return fail(2, "Cannot locate executable", err)
 	}
 	root := installationRoot(executable)
 	if root == "" {
-		return 2
+		return fail(2, "Cannot locate installation", nil)
 	}
 	current := filepath.Join(root, "current")
 	releases := filepath.Join(root, "releases")
-	oldTarget, err := filepath.EvalSymlinks(current)
+	oldTarget, err := finalDirectory(current)
 	if err != nil || !withinDirectory(releases, oldTarget) {
-		return 2
+		return fail(2, "Cannot resolve installed release junction", err)
 	}
-	staging := filepath.Join(dataDirectory(), "update", args[0])
-	if err := os.MkdirAll(staging, 0o700); err != nil {
-		return 2
+	// Stage on the installation volume so activation never requires a cross-volume rename.
+	staging, err := os.MkdirTemp(releases, ".update-")
+	if err != nil {
+		return fail(2, "Cannot create update staging directory", err)
 	}
 	defer os.RemoveAll(staging)
+	stage("downloading")
 	archivePath := filepath.Join(staging, archiveName)
 	checksumPath := filepath.Join(staging, checksumName)
 	if err := download(args[1], archivePath); err != nil {
-		return 3
+		return fail(3, "Cannot download package", err)
 	}
 	if err := download(args[2], checksumPath); err != nil {
-		return 3
+		return fail(3, "Cannot download checksum", err)
 	}
+	stage("verifying")
 	expected, err := expectedChecksum(checksumPath)
 	if err != nil || expected != fileChecksum(archivePath) {
-		return 3
+		return fail(3, "Package checksum does not match", err)
 	}
 	extracted := filepath.Join(staging, "extracted")
 	if err := extractArchive(archivePath, extracted); err != nil {
-		return 4
+		return fail(4, "Cannot extract package", err)
 	}
 	if err := validatePackage(extracted, args[0]); err != nil {
-		return 4
+		return fail(4, "Invalid Companion package", err)
 	}
-	_ = runCommand("sc.exe", "stop", serviceName)
-	if !waitForProcessExit(uint32(parentPID), 30*time.Second) {
-		_ = runCommand("sc.exe", "start", serviceName)
-		return 5
-	}
-	_ = runCommand("taskkill.exe", "/IM", filepath.Base(executable), "/FI", fmt.Sprintf("PID ne %d", os.Getpid()), "/T", "/F")
 	target := filepath.Join(releases, args[0])
-	if !withinDirectory(releases, target) {
-		return 2
+	if !withinDirectory(releases, target) || strings.EqualFold(oldTarget, target) || isReparsePoint(target) {
+		return fail(2, "Refusing to replace the running release", nil)
 	}
-	if err := os.MkdirAll(releases, 0o700); err != nil {
-		return 6
-	}
+	stage("installing")
 	if err := os.RemoveAll(target); err != nil {
-		return 6
+		return fail(6, "Cannot prepare target directory", err)
 	}
 	if err := os.Rename(extracted, target); err != nil {
-		return 6
+		return fail(6, "Cannot stage new release", err)
 	}
-	if err := replaceJunction(current, target); err != nil {
-		_ = os.RemoveAll(target)
-		_ = replaceJunction(current, oldTarget)
-		_ = runCommand("sc.exe", "start", serviceName)
-		return 6
+	stage("restarting")
+	rolledBack, err := activateUpdate(current, oldTarget, target, args[0], activationOperations{
+		stop:          stopCompanionService,
+		wait:          func() bool { return waitForProcessExit(uint32(parentPID), 30*time.Second) },
+		start:         func() bool { return runCommand("sc.exe", "start", serviceName) },
+		switchRelease: replaceJunction, healthy: healthy,
+		stopTray:  func() { _ = runCommand("schtasks.exe", "/End", "/TN", "JonaHomelabCompanionTray") },
+		startTray: startTrayTask,
+	})
+	if err != nil {
+		fail(5, "Cannot activate update", err)
+		if rolledBack {
+			_ = writeUpdateStatus(updateStatus{Phase: "rolled-back", TargetVersion: targetVersion, Error: err.Error()})
+		}
+		return 5
 	}
-	_ = runCommand("sc.exe", "start", serviceName)
-	if healthy(args[0]) {
-		startTrayTask()
-		return 0
+	stage("succeeded")
+	return 0
+}
+
+type activationOperations struct {
+	stop, wait, start   func() bool
+	switchRelease       func(string, string) error
+	healthy             func(string) bool
+	stopTray, startTray func()
+}
+
+func activateUpdate(current, oldTarget, target, version string, ops activationOperations) (bool, error) {
+	if !ops.stop() {
+		return false, errors.New("Windows rejected service stop")
 	}
-	_ = replaceJunction(current, oldTarget)
-	_ = runCommand("sc.exe", "start", serviceName)
-	return 5
+	if !ops.wait() {
+		_ = ops.start()
+		return false, errors.New("service did not stop")
+	}
+	ops.stopTray()
+	err := ops.switchRelease(current, target)
+	if err == nil {
+		if ops.start() && ops.healthy(version) {
+			ops.startTray()
+			return false, nil
+		}
+		err = errors.New("new service did not pass its health check")
+		// Stop the new service before restoring the old junction.
+		if !ops.stop() {
+			return false, errors.New("new service failed; rollback could not stop it")
+		}
+	}
+	if restoreErr := ops.switchRelease(current, oldTarget); restoreErr != nil {
+		return false, fmt.Errorf("%v; rollback: %w", err, restoreErr)
+	}
+	if !ops.start() || !ops.healthy(filepath.Base(oldTarget)) {
+		return false, fmt.Errorf("%v; old service could not be restored", err)
+	}
+	ops.startTray()
+	return true, err
+}
+
+func stopCompanionService() bool {
+	manager, err := mgr.Connect()
+	if err != nil {
+		return false
+	}
+	defer manager.Disconnect()
+	service, err := manager.OpenService(serviceName)
+	if err != nil {
+		return false
+	}
+	defer service.Close()
+	status, err := service.Query()
+	if err != nil {
+		return false
+	}
+	if status.State == svc.Stopped {
+		return true
+	}
+	if status.State != svc.StopPending {
+		if _, err := service.Control(svc.Stop); err != nil {
+			return false
+		}
+	}
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		status, err = service.Query()
+		if err != nil {
+			return false
+		}
+		if status.State == svc.Stopped {
+			return true
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	return false
 }
 
 func validGithubDownload(value string) bool {
 	parsed, err := http.NewRequest(http.MethodGet, value, nil)
-	return err == nil && parsed.URL.Scheme == "https" && (strings.EqualFold(parsed.URL.Hostname(), "github.com") || strings.EqualFold(parsed.URL.Hostname(), "objects.githubusercontent.com"))
+	return err == nil && parsed.URL.Scheme == "https" && parsed.URL.Host == "github.com" && parsed.URL.User == nil && strings.HasPrefix(parsed.URL.Path, "/"+githubRepository+"/releases/download/")
 }
 
 func download(url, destination string) error {
@@ -332,9 +489,8 @@ func withinDirectory(directory, candidate string) bool {
 	if rootErr != nil || pathErr != nil {
 		return false
 	}
-	root = strings.TrimRight(root, `\`) + `\`
-	path = strings.TrimRight(path, `\`) + `\`
-	return strings.HasPrefix(strings.ToLower(path), strings.ToLower(root))
+	relative, err := filepath.Rel(root, path)
+	return err == nil && relative != "." && relative != ".." && !strings.HasPrefix(relative, `..\`) && !filepath.IsAbs(relative)
 }
 
 func replaceJunction(path, target string) error {
@@ -390,12 +546,13 @@ func healthy(expected string) bool {
 		response, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/health", companionPort))
 		if err == nil {
 			var body struct {
-				Status  string `json:"status"`
-				Version string `json:"version"`
+				Status    string `json:"status"`
+				Version   string `json:"version"`
+				Simulated bool   `json:"simulated"`
 			}
 			_ = json.NewDecoder(response.Body).Decode(&body)
 			_ = response.Body.Close()
-			if response.StatusCode == http.StatusOK && body.Status == "ok" && body.Version == expected {
+			if response.StatusCode == http.StatusOK && body.Status == "ok" && body.Version == expected && !body.Simulated {
 				return true
 			}
 		}

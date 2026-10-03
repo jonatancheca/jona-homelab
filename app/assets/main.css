@@ -207,3 +207,10 @@ input::placeholder { color: #708278; }
 .toast { background: #1d3828; color: #9be0ae; border-color: #3e694b; box-shadow: 0 6px 25px #0007; }
 .spinner { border-color: #35533f; border-top-color: #8bd5a0; }
 .skip-link { background: var(--dark-raised); color: var(--dark-text); }
+.companion-update { margin: 12px 0; padding: 12px 0; border-top: 1px solid var(--dark-border); color: var(--dark-text-muted); font-size: 12px; overflow-wrap: anywhere; }
+.companion-version-line { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.companion-version-line strong { color: var(--dark-text); }
+.companion-update p { margin: 8px 0; line-height: 1.6; }
+.companion-update code { font-size: 11px; }
+.companion-update .button { width: 100%; margin-top: 8px; white-space: normal; }
+.companion-update small { display: block; margin-top: 8px; line-height: 1.5; }

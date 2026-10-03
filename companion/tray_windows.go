@@ -530,7 +530,7 @@ func updateCheckMessage(result updateCheckResult) string {
 		return "This is a local build. Updates are installed manually. Install a published release to enable automatic updates.\n\nThe Companion service remains available for device controls."
 	}
 	if result.Scheduled {
-		return "Update scheduled. The service will restart shortly."
+		return "Update requested. Use Refresh to check progress or errors."
 	}
 	return "Already up to date."
 }
@@ -539,6 +539,13 @@ func (t *trayApplication) refreshInfo() { t.startAction("refresh") }
 
 func (t *trayApplication) updateInfo(info pipeInfo) {
 	t.setStatus("Service connected", trayStatusConnected)
+	if info.Update.active() {
+		t.setStatus("Updating: "+info.Update.Phase, trayStatusPending)
+	}
+	if info.Update.Phase == "failed" || info.Update.Phase == "rolled-back" {
+		t.setStatus("Update failed; service connected", trayStatusConnected)
+		t.showDialog(dialogContent{title: "Update failed", body: info.Update.Error, tone: dialogError})
+	}
 	setWindowText(t.code, info.PairingCode)
 	lastCall := "Last server call: Never"
 	if info.LastServerCall != "" {

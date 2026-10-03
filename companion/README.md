@@ -67,6 +67,16 @@ Archivos en `C:\ProgramData\JonaHomelabCompanion`:
 
 ## Paquetes locales y actualizaciones
 
+La web muestra la versión instalada y la última release que incluye el ZIP de Companion y su checksum. La consulta a GitHub se comparte entre dispositivos y se almacena durante cinco minutos; los errores se reintentan después de treinta segundos y no cambian el estado de conexión del PC.
+
+En versiones compatibles, **Actualizar Companion** envía una petición firmada a `POST /v1/update` con un objeto vacío. Solo se admiten los archivos de la release publicada del repositorio configurado. La consulta normal `GET /v1/status` no instala nada: devuelve versión, capacidad `remoteUpdate` y estado de la operación. Las versiones antiguas siguen mostrando su versión y necesitan una primera instalación manual para incorporar esta capacidad.
+
+La descarga, verificación, instalación, reinicio y resultado quedan en `update-status.json`, incluido en los diagnósticos. Un bloqueo exclusivo evita dos instaladores concurrentes, incluso durante el reinicio del servicio. El panel confirma la actualización únicamente cuando recibe una respuesta firmada con la versión objetivo. **Update requested** en la bandeja solo confirma la petición; **Refresh** muestra progreso y errores. Se reinicia Companion, no Windows, y se conserva el emparejamiento.
+
+Si falla la comprobación de salud de la nueva versión, se detiene antes de restaurar la junction de la versión anterior. Los fallos previos a activar la nueva versión dejan el servicio anterior funcionando. Tras un fallo se evita un reintento automático inmediato; la opción manual permite reintentar.
+
+Una instalación afectada por `update.finished` con `exitCode: 2` inmediatamente después de `update.starting` puede requerir instalar manualmente la release que contiene esta reparación. El actualizador anterior puede no resolver la junction `current` y, por tanto, no puede instalar su propia corrección. El nuevo actualizador resuelve la ruta mediante Windows y registra el paso concreto que falla.
+
 Las versiones `local-...` permiten probar una reparación y no se actualizan automáticamente a una release anterior. En ellas, **Check for updates** muestra una explicación informativa y mantiene el servicio conectado; no intenta descargar ni instalar nada. Para habilitar actualizaciones automáticas hay que instalar un paquete publicado `main-...`, que mantiene la comprobación diaria, checksum y rollback. Un error del comprobador se registra y se muestra sin confundirlo con una caída del servicio; solo un fallo de conexión al servicio muestra **Service unavailable**.
 
 Para generar un ZIP desde el código, con Go instalado, sin compilar la web:

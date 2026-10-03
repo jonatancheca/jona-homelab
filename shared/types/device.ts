@@ -36,6 +36,30 @@ export interface DeviceStatus {
   remoteReady: boolean
   remoteMethod: RemoteMethod
   checkedAt: string
+  companion?: CompanionStatus
+}
+
+export interface CompanionOperation {
+  phase: 'idle' | 'checking' | 'scheduled' | 'downloading' | 'verifying' | 'installing' | 'restarting' | 'succeeded' | 'failed' | 'rolled-back'
+  targetVersion?: string
+  error?: string
+  updatedAt?: string
+}
+
+export interface CompanionStatus {
+  version: string | null
+  latestVersion: string | null
+  remoteUpdate: boolean
+  state: 'current' | 'available' | 'updating' | 'unknown' | 'local' | 'failed'
+  releaseCheckedAt?: string
+  releaseError?: string
+  operation?: CompanionOperation
+}
+
+export interface CompanionUpdateResult {
+  scheduled: boolean
+  localBuild?: boolean
+  targetVersion?: string
 }
 
 export interface ShutdownResult {

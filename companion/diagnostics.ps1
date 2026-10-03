@@ -43,7 +43,7 @@ Save-Section 'configuration-summary' {
   } else { 'No configuration file.' }
 }
 # Strict allowlist: never copy config.json, pairing-code.txt, headers or request bodies.
-foreach ($name in @('service.log', 'service.log.1', 'install.log', 'install.log.1', 'crash.log', 'crash.log.1')) {
+foreach ($name in @('service.log', 'service.log.1', 'install.log', 'install.log.1', 'crash.log', 'crash.log.1', 'update-status.json')) {
   $source = Join-Path $DataDirectory $name
   Save-Section $name {
     if (Test-Path -LiteralPath $source) { Get-Content -LiteralPath $source -Tail 5000 }

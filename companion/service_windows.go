@@ -77,7 +77,7 @@ func runUpdateLoop(ctx context.Context, updates *updateCoordinator) {
 	}
 	select {
 	case <-time.After(5 * time.Second):
-		updates.checkAndSchedule(ctx)
+		updates.checkAutomatically(ctx)
 	case <-ctx.Done():
 		return
 	}
@@ -86,7 +86,7 @@ func runUpdateLoop(ctx context.Context, updates *updateCoordinator) {
 	for {
 		select {
 		case <-ticker.C:
-			updates.checkAndSchedule(ctx)
+			updates.checkAutomatically(ctx)
 		case <-ctx.Done():
 			return
 		}

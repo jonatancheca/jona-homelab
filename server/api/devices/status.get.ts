@@ -1,8 +1,14 @@
 import { checkDevicesStatus } from '../../core/remote.ts'
 import { getRuntime } from '../../utils/runtime'
 import { apiHandler } from '../../utils/http'
+import { latestCompanionRelease, withCompanionRelease } from '../../core/companion-updates.ts'
 
-export default apiHandler(() => {
+export default apiHandler(async () => {
   const { store, settings } = getRuntime()
-  return checkDevicesStatus(store.list(), settings.ssh, device => store.companionSecretOrNull(device.id))
+  const devices = store.list()
+  const [statuses, release] = await Promise.all([
+    checkDevicesStatus(devices, settings.ssh, device => store.companionSecretOrNull(device.id)),
+    devices.some(device => device.remoteMethod === 'companion') ? latestCompanionRelease() : Promise.resolve(null),
+  ])
+  return release ? statuses.map(status => withCompanionRelease(status, release)) : statuses
 })

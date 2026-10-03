@@ -70,7 +70,7 @@ func updateDialogContent(result updateCheckResult) dialogContent {
 		return dialogContent{title: "Manual updates", body: updateCheckMessage(result), tone: dialogWarning}
 	}
 	if result.Scheduled {
-		return dialogContent{title: "Update scheduled", body: "Companion will restart shortly to install the latest version."}
+		return dialogContent{title: "Update requested", body: "Companion is preparing the update. Only its service will restart.\nUse Refresh to check progress or errors; installation is not yet confirmed."}
 	}
 	return dialogContent{title: "Already up to date", body: "The latest version of Companion is installed.\nNo update is needed."}
 }

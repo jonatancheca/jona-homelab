@@ -233,6 +233,7 @@ onUnmounted(() => {
               <p v-if="device.remoteMethod === 'none' && device.address" class="remote-target">Ping · {{ device.address }}</p>
               <p v-else-if="device.address && (device.remoteMethod === 'companion' ? device.companionConfigured : device.sshUser)" class="remote-target">{{ device.remoteMethod === 'companion' ? `Companion · ${device.address}` : `${device.sshUser}@${device.address}` }}</p>
               <p v-else-if="device.remoteMethod !== 'none'" class="remote-target missing">Edit this device to configure status and shutdown.</p>
+              <CompanionUpdate v-if="device.remoteMethod === 'companion'" :device-id="device.id" :status="statuses[device.id]" @refresh="refreshStatuses" />
               <div class="last-sent"><AppIcon name="clock" /><span>{{ device.lastSentAt ? `Last sent: ${dateLabel(device.lastSentAt)}` : 'No packets sent' }}</span></div>
               <div class="power-actions">
                 <button class="button wake-button" :disabled="sending.has(device.id) || remaining(device.id) > 0" @click="wake(device)"><span v-if="sending.has(device.id)" class="spinner small"></span><AppIcon v-else name="power" />{{ sending.has(device.id) ? 'Sending…' : remaining(device.id) ? `Wait ${remaining(device.id)} s` : 'Wake' }}</button>
