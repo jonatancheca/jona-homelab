@@ -35,12 +35,15 @@ const (
 	ninSelect        = 0x0400
 	ninKeySelect     = 0x0401
 
-	wsCaption     = 0x00C00000
-	wsSysMenu     = 0x00080000
-	wsMinimizeBox = 0x00020000
-	wsChild       = 0x40000000
-	wsVisible     = 0x10000000
-	wsTabStop     = 0x00010000
+	wsCaption      = 0x00C00000
+	wsSysMenu      = 0x00080000
+	wsMinimizeBox  = 0x00020000
+	wsChild        = 0x40000000
+	wsVisible      = 0x10000000
+	wsTabStop      = 0x00010000
+	wsPopup        = 0x80000000
+	wsExTopmost    = 0x00000008
+	wsExToolWindow = 0x00000080
 
 	esReadOnly    = 0x0800
 	esAutoHScroll = 0x0080
@@ -67,6 +70,8 @@ const (
 	mfString       = 0x00000000
 	mfSeparator    = 0x00000800
 	tpmRightButton = 0x00000002
+	tpmNoNotify    = 0x00000080
+	tpmReturnCmd   = 0x00000100
 
 	cfUnicodeText = 13
 	gmemMoveable  = 0x00000002
@@ -597,6 +602,7 @@ func (t *trayApplication) showMenu() {
 	if menu == 0 {
 		return
 	}
+	defer procDestroyMenu.Call(menu)
 	appendMenu(menu, mfString, idCopy, "Copy pairing code")
 	appendMenu(menu, mfString, idRefresh, "Refresh")
 	appendMenu(menu, mfString, idUpdate, "Check for updates")
@@ -605,11 +611,28 @@ func (t *trayApplication) showMenu() {
 	appendMenu(menu, mfString, idExit, "Exit tray")
 	var point nativePoint
 	procGetCursorPos.Call(uintptr(unsafe.Pointer(&point)))
-	procSetForegroundWindow.Call(uintptr(t.hwnd))
-	procTrackPopupMenu.Call(menu, tpmRightButton, uintptr(point.X), uintptr(point.Y), 0, uintptr(t.hwnd), 0)
+	command := trackTrayMenu(menu, point, t.instance)
 	procShellNotifyIcon.Call(nimSetFocus, uintptr(unsafe.Pointer(&t.icon)))
 	procPostMessage.Call(uintptr(t.hwnd), wmNull, 0, 0)
-	procDestroyMenu.Call(menu)
+	if command != 0 {
+		t.command(command)
+	}
+}
+
+func trackTrayMenu(menu uintptr, point nativePoint, instance uintptr) int {
+	// A hidden/minimized main window cannot reliably take foreground from
+	// Explorer's notification-area flyout. A visible, zero-size tool window
+	// owns the menu without showing the main window or adding a taskbar button.
+	owner := createWindowEx(wsExToolWindow|wsExTopmost, utf16("STATIC"), utf16("Companion tray menu"), wsPopup|wsVisible, int(point.X), int(point.Y), 0, 0, 0, 0, instance)
+	if owner == 0 {
+		return 0
+	}
+	defer procDestroyWindow.Call(owner)
+	procSetForegroundWindow.Call(owner)
+	// Dispatch only after the temporary owner is destroyed so commands can
+	// open their own dialogs without losing focus to menu cleanup.
+	command, _, _ := procTrackPopupMenu.Call(menu, tpmRightButton|tpmNoNotify|tpmReturnCmd, uintptr(point.X), uintptr(point.Y), 0, owner, 0)
+	return int(command)
 }
 
 func trayEventKindFor(lParam uintptr) trayEventKind {
