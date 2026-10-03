@@ -3,6 +3,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,6 +16,7 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	_ = os.Setenv("ProgramData", directory)
+	pipeName = fmt.Sprintf(`\\.\pipe\JonaHomelabCompanion-test-%d`, os.Getpid())
 	code := m.Run()
 	_ = os.RemoveAll(directory)
 	os.Exit(code)

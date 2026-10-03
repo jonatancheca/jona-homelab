@@ -59,6 +59,7 @@ var (
 	procRemoveWindowSubclass         = comctl32.NewProc("RemoveWindowSubclass")
 	procDefSubclassProc              = comctl32.NewProc("DefSubclassProc")
 	trayButtonCallback               uintptr
+	themedButtons                    = make(map[windows.HWND]*trayTheme)
 )
 
 func init() { trayButtonCallback = windows.NewCallback(trayButtonProc) }
@@ -96,7 +97,10 @@ const (
 	trayStatusError
 )
 
-type trayControlStyle struct{ foreground, background uint32 }
+type trayControlStyle struct {
+	foreground, background uint32
+	primary                bool
+}
 
 type trayTheme struct {
 	dpi                                        int
@@ -109,7 +113,11 @@ type trayTheme struct {
 
 func (s *trayTheme) init() {
 	dpi, _, _ := procGetDpiForSystem.Call()
-	s.dpi = int(dpi)
+	s.initDPI(int(dpi))
+}
+
+func (s *trayTheme) initDPI(dpi int) {
+	s.dpi = dpi
 	if s.dpi == 0 {
 		s.dpi = 96
 	}
@@ -167,38 +175,49 @@ func (s *trayTheme) applyCaption(hwnd windows.HWND) {
 
 func (t *trayApplication) label(text string, x, y, width, height int, font uintptr, foreground, background uint32) windows.HWND {
 	control := t.newControl("STATIC", text, wsChild|wsVisible|0x0000c080, 0, x, y, width, height, 0) // End ellipsis, no mnemonic prefix.
-	t.theme.controls[control] = trayControlStyle{foreground, background}
+	t.theme.controls[control] = trayControlStyle{foreground: foreground, background: background}
 	procSendMessage.Call(uintptr(control), wmSetFont, font, 1)
 	return control
 }
 
 func (t *trayApplication) button(text string, x, y, width, height, id int, background uint32) windows.HWND {
 	control := t.newControl("BUTTON", text, wsChild|wsVisible|wsTabStop|bsOwnerDraw, 0, x, y, width, height, id)
-	t.theme.controls[control] = trayControlStyle{trayText, background}
+	t.theme.controls[control] = trayControlStyle{foreground: trayText, background: background, primary: id == idCopy}
+	themedButtons[control] = &t.theme
 	procSetWindowSubclass.Call(uintptr(control), trayButtonCallback, 1, 0)
 	return control
 }
 
 func trayButtonProc(hwnd windows.HWND, message uint32, wParam, lParam, id, _ uintptr) uintptr {
-	if t := activeTray; t != nil {
+	if theme := themedButtons[hwnd]; theme != nil {
 		switch message {
+		case 0x00f4: // BM_SETSTYLE: keep owner drawing when the dialog changes its default button.
+			wParam = bsOwnerDraw
 		case wmMouseMove:
-			if t.theme.hover != hwnd {
-				t.theme.hover = hwnd
+			if theme.hover != hwnd {
+				theme.hover = hwnd
 				track := nativeTrackMouse{Size: uint32(unsafe.Sizeof(nativeTrackMouse{})), Flags: 2, Window: hwnd}
 				procTrackMouseEvent.Call(uintptr(unsafe.Pointer(&track)))
 				procInvalidateRect.Call(uintptr(hwnd), 0, 0)
 			}
 		case wmMouseLeave:
-			if t.theme.hover == hwnd {
-				t.theme.hover = 0
+			if theme.hover == hwnd {
+				theme.hover = 0
 			}
 			procInvalidateRect.Call(uintptr(hwnd), 0, 0)
 		case wmNCDestroy:
 			procRemoveWindowSubclass.Call(uintptr(hwnd), trayButtonCallback, id)
+			delete(themedButtons, hwnd)
 		}
 	}
 	result, _, _ := procDefSubclassProc.Call(uintptr(hwnd), uintptr(message), wParam, lParam)
+	if message == 0x0087 { // WM_GETDLGCODE: Enter activates the focused owner-drawn button.
+		if focus, _, _ := procGetFocus.Call(); focus == uintptr(hwnd) {
+			result |= 0x10 // DLGC_DEFPUSHBUTTON
+		} else {
+			result |= 0x20 // DLGC_UNDEFPUSHBUTTON
+		}
+	}
 	return result
 }
 
@@ -261,7 +280,7 @@ func (t *trayApplication) drawControl(item *nativeDrawItem) {
 			fill, border, foreground = 0x382322, 0x613a35, 0xef9a90
 		}
 	} else {
-		if item.ID == idCopy {
+		if s.controls[item.Window].primary {
 			fill, border, foreground = trayPrimary, trayPrimary, 0x08140d
 		}
 		if item.State&0x4 != 0 { // ODS_DISABLED
@@ -271,7 +290,7 @@ func (t *trayApplication) drawControl(item *nativeDrawItem) {
 			foreground = trayText
 		} else if s.hover == item.Window {
 			fill, border = 0x24362b, 0x5b8067
-			if item.ID == idCopy {
+			if s.controls[item.Window].primary {
 				fill, border = trayHover, trayHover
 			}
 		}

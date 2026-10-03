@@ -21,13 +21,15 @@ const (
 	companionPort        = 47654
 	serviceName          = "JonaHomelabCompanion"
 	displayName          = "Jona Homelab Companion"
-	pipeName             = `\\.\pipe\JonaHomelabCompanion`
 	dataDirectoryName    = "JonaHomelabCompanion"
 	configFileName       = "config.json"
 	dpapiEntropy         = "jona-homelab-companion"
 	dpapiScopeMachine    = "machine"
 	configFilePermission = 0o600
 )
+
+// Tests use a per-process pipe so they cannot contact an installed service.
+var pipeName = `\\.\pipe\JonaHomelabCompanion`
 
 type companionConfig struct {
 	EncryptedSecret string `json:"encryptedSecret"`

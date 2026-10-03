@@ -22,6 +22,8 @@ Start-ScheduledTask -TaskName JonaHomelabCompanionTray
 
 Un fallo al crear la bandeja no detiene el servicio. Para omitirla expresamente: `install.ps1 -SkipTray`.
 
+El icono de servidores identifica el Companion en la bandeja y reaparece si Explorer se reinicia. Los avisos y confirmaciones usan el tema oscuro de la aplicación, admiten teclado y se adaptan al escalado de Windows. En la confirmación para rotar el código, **Cancel** recibe el foco inicial; Escape o cerrar el diálogo cancela la acción.
+
 ## Conectar con la web
 
 1. Abre la bandeja y copia el código `jhcp1_...`.

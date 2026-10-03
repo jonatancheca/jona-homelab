@@ -48,11 +48,9 @@ const (
 	swHide = 0
 	swShow = 5
 
-	mbOK          = 0x00000000
-	mbYesNo       = 0x00000004
-	mbIconError   = 0x00000010
-	mbIconWarning = 0x00000030
-	idYes         = 6
+	mbOK        = 0x00000000
+	mbIconError = 0x00000010
+	idYes       = 6
 
 	transparent    = 1
 	defaultGuiFont = 17
@@ -119,7 +117,6 @@ var (
 	procCloseClipboard      = user32.NewProc("CloseClipboard")
 	procEmptyClipboard      = user32.NewProc("EmptyClipboard")
 	procSetClipboardData    = user32.NewProc("SetClipboardData")
-	procLoadIcon            = user32.NewProc("LoadIconW")
 	procLoadCursor          = user32.NewProc("LoadCursorW")
 	procShellNotifyIcon     = shell32.NewProc("Shell_NotifyIconW")
 	procGetModuleHandle     = kernel32.NewProc("GetModuleHandleW")
@@ -185,23 +182,26 @@ type trayResult struct {
 }
 
 type trayApplication struct {
-	hwnd     windows.HWND
-	instance uintptr
-	icon     notifyIconData
-	font     uintptr
-	theme    trayTheme
-	status   windows.HWND
-	code     windows.HWND
-	lastCall windows.HWND
-	details  windows.HWND
-	version  windows.HWND
-	copy     windows.HWND
-	rotate   windows.HWND
-	refresh  windows.HWND
-	update   windows.HWND
-	mu       sync.Mutex
-	busy     bool
-	pending  *trayResult
+	hwnd           windows.HWND
+	dialog         windows.HWND
+	instance       uintptr
+	icon           notifyIconData
+	icons          companionIcons
+	taskbarCreated uint32
+	font           uintptr
+	theme          trayTheme
+	status         windows.HWND
+	code           windows.HWND
+	lastCall       windows.HWND
+	details        windows.HWND
+	version        windows.HWND
+	copy           windows.HWND
+	rotate         windows.HWND
+	refresh        windows.HWND
+	update         windows.HWND
+	mu             sync.Mutex
+	busy           bool
+	pending        *trayResult
 }
 
 func runTray() error {
@@ -220,9 +220,8 @@ func runTray() error {
 	}
 	defer windows.CloseHandle(mutex)
 	tray := &trayApplication{}
-	defer tray.theme.close()
 	activeTray = tray
-	defer func() { activeTray = nil }()
+	defer func() { tray.close(); activeTray = nil }()
 	if err := tray.create(); err != nil {
 		return err
 	}
@@ -233,7 +232,15 @@ func runTray() error {
 var activeTray *trayApplication
 
 func showTrayError(err error) {
-	messageBox(0, err.Error(), displayName, mbOK|mbIconError)
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	tray := &trayApplication{}
+	tray.instance, _, _ = procGetModuleHandle.Call(0)
+	tray.theme.init()
+	defer tray.theme.close()
+	_ = tray.icons.init(tray.theme.dpi)
+	defer tray.icons.close()
+	tray.showDialog(dialogContent{title: "Companion could not start", body: err.Error(), tone: dialogError})
 }
 
 func (t *trayApplication) create() error {
@@ -241,15 +248,17 @@ func (t *trayApplication) create() error {
 	instance, _, _ := procGetModuleHandle.Call(0)
 	t.instance = instance
 	className := utf16(windowClassName)
-	icon := loadSystemIcon()
+	if err := t.icons.init(t.theme.dpi); err != nil {
+		return err
+	}
 	class := nativeClass{
 		Size:      uint32(unsafe.Sizeof(nativeClass{})),
 		WndProc:   windows.NewCallback(windowProc),
 		Instance:  instance,
-		Icon:      icon,
+		Icon:      t.icons.large,
 		Cursor:    loadSystemCursor(),
 		ClassName: uintptr(unsafe.Pointer(className)),
-		SmallIcon: icon,
+		SmallIcon: t.icons.small,
 	}
 	if result, _, callErr := procRegisterClassEx.Call(uintptr(unsafe.Pointer(&class))); result == 0 && callErr != windows.ERROR_CLASS_ALREADY_EXISTS {
 		return fmt.Errorf("register tray window: %w", callErr)
@@ -264,8 +273,23 @@ func (t *trayApplication) create() error {
 	t.font = t.theme.body
 	t.theme.applyCaption(t.hwnd)
 	t.createControls()
-	t.addIcon(icon)
+	taskbarCreated, _, _ := procRegisterWindowMessage.Call(uintptr(unsafe.Pointer(utf16("TaskbarCreated"))))
+	t.taskbarCreated = uint32(taskbarCreated)
+	if err := t.addIcon(); err != nil {
+		// Explorer may still be starting at logon; TaskbarCreated retries it.
+		logEvent("tray.icon_failed", map[string]any{"error": err.Error()})
+		t.show()
+	}
 	return nil
+}
+
+func (t *trayApplication) close() {
+	if t.hwnd != 0 {
+		procDestroyWindow.Call(uintptr(t.hwnd))
+	}
+	procUnregisterClass.Call(uintptr(unsafe.Pointer(utf16(windowClassName))), t.instance)
+	t.icons.close()
+	t.theme.close()
 }
 
 func (t *trayApplication) createControls() {
@@ -300,13 +324,16 @@ func (t *trayApplication) newControl(class, text string, style, extended uint32,
 	return control
 }
 
-func (t *trayApplication) addIcon(icon uintptr) {
-	t.icon = notifyIconData{Size: uint32(unsafe.Sizeof(notifyIconData{})), Window: t.hwnd, ID: 1, Flags: nifMessage | nifIcon | nifTip, Callback: wmTrayMessage, Icon: icon}
+func (t *trayApplication) addIcon() error {
+	t.icon = notifyIconData{Size: uint32(unsafe.Sizeof(notifyIconData{})), Window: t.hwnd, ID: 1, Flags: nifMessage | nifIcon | nifTip | 0x80, Callback: wmTrayMessage, Icon: t.icons.small}
 	tip, _ := windows.UTF16FromString(displayName)
 	copy(t.icon.Tip[:], tip)
-	procShellNotifyIcon.Call(nimAdd, uintptr(unsafe.Pointer(&t.icon)))
+	if ok, _, err := procShellNotifyIcon.Call(nimAdd, uintptr(unsafe.Pointer(&t.icon))); ok == 0 {
+		return fmt.Errorf("add Companion tray icon: %w", err)
+	}
 	t.icon.Timeout = notifyIconVersion4
 	procShellNotifyIcon.Call(nimSetVersion, uintptr(unsafe.Pointer(&t.icon)))
+	return nil
 }
 
 func (t *trayApplication) removeIcon() {
@@ -332,6 +359,12 @@ func (t *trayApplication) messageLoop() error {
 }
 
 func (t *trayApplication) windowProc(hwnd windows.HWND, message uint32, wParam, lParam uintptr) uintptr {
+	if message == t.taskbarCreated && t.taskbarCreated != 0 {
+		if err := t.addIcon(); err != nil {
+			logEvent("tray.icon_failed", map[string]any{"error": err.Error()})
+		}
+		return 0
+	}
 	switch message {
 	case wmCreate:
 		return 0
@@ -374,6 +407,7 @@ func (t *trayApplication) windowProc(hwnd windows.HWND, message uint32, wParam, 
 		return 0
 	case wmDestroy:
 		t.removeIcon()
+		t.hwnd = 0
 		procPostQuitMessage.Call(0)
 		return 0
 	}
@@ -394,7 +428,7 @@ func (t *trayApplication) command(id int) {
 	case idCopy:
 		t.startAction("copy")
 	case idRotate:
-		if messageBox(t.hwnd, "The old pairing code stops working immediately. Continue?", displayName, mbYesNo|mbIconWarning) == idYes {
+		if t.showDialog(dialogContent{title: "Rotate pairing code?", body: "The current code will stop working immediately.\nPair this PC again in Jona Homelab with the new code.", confirm: "Rotate code", tone: dialogWarning}) {
 			t.startAction("rotate")
 		}
 	case idRefresh:
@@ -458,21 +492,28 @@ func (t *trayApplication) finishAction() {
 	if result.err != nil {
 		text, status := trayServiceStatus(result.err)
 		t.setStatus(text, status)
-		messageBox(t.hwnd, result.err.Error(), displayName, mbOK|mbIconError)
+		title := "Service unavailable"
+		if status == trayStatusConnected {
+			title = "Action could not be completed"
+		}
+		if result.action == "update" && status == trayStatusConnected {
+			title = "Could not check for updates"
+		}
+		t.showDialog(dialogContent{title: title, body: result.err.Error(), tone: dialogError})
 		return
 	}
 	if result.action == "update" {
 		t.setStatus("Service connected", trayStatusConnected)
-		messageBox(t.hwnd, updateCheckMessage(result.update), displayName, mbOK)
+		t.showDialog(updateDialogContent(result.update))
 		return
 	}
 	t.updateInfo(result.info)
 	if result.action == "copy" || result.action == "rotate" {
 		if err := setClipboardText(result.info.PairingCode); err != nil {
-			messageBox(t.hwnd, err.Error(), displayName, mbOK|mbIconError)
+			t.showDialog(dialogContent{title: "Clipboard unavailable", body: err.Error(), tone: dialogError})
 			return
 		}
-		messageBox(t.hwnd, "Pairing code copied to the clipboard.", displayName, mbOK)
+		t.showDialog(dialogContent{title: "Pairing code copied", body: "Paste it into this device's Companion settings in Jona Homelab.\nKeep the code private: it grants control of this PC."})
 	}
 }
 
@@ -509,6 +550,10 @@ func (t *trayApplication) updateInfo(info pipeInfo) {
 }
 
 func (t *trayApplication) show() {
+	if t.dialog != 0 {
+		procSetForegroundWindow.Call(uintptr(t.dialog))
+		return
+	}
 	procShowWindow.Call(uintptr(t.hwnd), swShow)
 	procSetForegroundWindow.Call(uintptr(t.hwnd))
 	procUpdateWindow.Call(uintptr(t.hwnd))
@@ -518,6 +563,10 @@ func (t *trayApplication) show() {
 }
 
 func (t *trayApplication) showMenu() {
+	if t.dialog != 0 {
+		procSetForegroundWindow.Call(uintptr(t.dialog))
+		return
+	}
 	menu, _, _ := procCreatePopupMenu.Call()
 	if menu == 0 {
 		return
@@ -564,11 +613,6 @@ func appendMenu(menu uintptr, flags uint32, id int, title string) {
 
 func utf16(value string) *uint16 {
 	result, _ := windows.UTF16PtrFromString(value)
-	return result
-}
-
-func loadSystemIcon() uintptr {
-	result, _, _ := procLoadIcon.Call(0, uintptr(32512))
 	return result
 }
 
