@@ -13,7 +13,7 @@ const MAX_OUTPUT_BYTES = 64 * 1024
 export type CommandRunner = (command: string, args: string[], timeoutMs: number) => Promise<boolean>
 export type CompanionCommand = 'status' | 'shutdown-safe' | 'shutdown-force' | 'sleep' | 'hibernate'
 export type CompanionRunner = (device: Device, secret: string, command: CompanionCommand) => Promise<boolean>
-export interface CompanionReply { ready: boolean, version: string | null, remoteUpdate: boolean, operation?: CompanionOperation }
+export interface CompanionReply { ready: boolean, version: string | null, displayVersion?: string, remoteUpdate: boolean, operation?: CompanionOperation }
 export type CompanionStatusRunner = (device: Device, secret: string, command: CompanionCommand) => Promise<boolean | CompanionReply>
 
 export const runCommand: CommandRunner = (command, args, timeoutMs) => new Promise((resolve) => {
@@ -129,6 +129,7 @@ export async function requestCompanion(device: Device, secret: string, command: 
 export async function readCompanionStatus(device: Device, secret: string, fetcher: typeof fetch = fetch): Promise<CompanionReply> {
   const payload = await requestCompanionPayload(device, secret, '/v1/status', '', fetcher)
   const version = typeof payload.version === 'string' && /^(main-[a-f0-9]{12}|local-[a-z0-9-]+|dev)$/.test(payload.version) ? payload.version : null
+  const displayVersion = typeof payload.displayVersion === 'string' && /^1\.\d{2,}$/.test(payload.displayVersion) ? payload.displayVersion : undefined
   let operation: CompanionOperation | undefined
   if (payload.update && typeof payload.update === 'object') {
     const value = payload.update as Record<string, unknown>
@@ -139,7 +140,7 @@ export async function readCompanionStatus(device: Device, secret: string, fetche
         updatedAt: typeof value.updatedAt === 'string' ? value.updatedAt : undefined }
     }
   }
-  return { ready: payload.ready === true, version, remoteUpdate: payload.remoteUpdate === true, operation }
+  return { ready: payload.ready === true, version, displayVersion, remoteUpdate: payload.remoteUpdate === true, operation }
 }
 
 const readStatus: CompanionStatusRunner = async (device, secret) => {
@@ -168,6 +169,7 @@ export async function checkDeviceStatus(
   const remoteReady = typeof reply === 'boolean' ? reply : reply.ready
   const companion = remoteMethod === 'companion' ? {
     version: typeof reply === 'object' ? reply.version : null, latestVersion: null,
+    displayVersion: typeof reply === 'object' ? reply.displayVersion : undefined,
     remoteUpdate: typeof reply === 'object' && reply.remoteUpdate, state: 'unknown' as const,
     operation: typeof reply === 'object' ? reply.operation : undefined,
   } : undefined

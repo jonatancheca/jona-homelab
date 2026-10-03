@@ -5,6 +5,7 @@
 - Pregunta solo dudas que cambien materialmente el alcance.
 - "Haz la issue N" autoriza inspección, implementación, validación, commit, push y cierre; no pidas confirmación adicional.
 - Trabaja siempre en la rama actual. Crea o cambia de rama solo cuando se pida expresamente.
+- Cada nuevo commit debe incrementar el contador de `companion/VERSION`: `1.00`, `1.01`, …, `1.99`, `1.100`. El commit que introduce la numeración empieza en `1.00`. Este archivo es la fuente única de la versión visible; conserva `main-<commit>` como identificador del actualizador.
 
 
 ## Validación

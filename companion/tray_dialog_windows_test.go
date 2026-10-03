@@ -155,7 +155,7 @@ func TestCompanionDiagnosticsControls(t *testing.T) {
 	}
 	// Do not connect to the installed service or display a real pairing code.
 	tray.setStatus("Service unavailable", trayStatusError)
-	tray.show()
+	procShowWindow.Call(uintptr(tray.hwnd), swShow)
 	getDlgItem := user32.NewProc("GetDlgItem")
 	button, _, _ := getDlgItem.Call(uintptr(tray.hwnd), idDiagnostics)
 	if button == 0 || windows.HWND(button) != tray.diagnostics {

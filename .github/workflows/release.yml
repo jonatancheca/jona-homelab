@@ -181,6 +181,9 @@ jobs:
         run: |
           version="main-${GITHUB_SHA::12}"
           repository="$GITHUB_REPOSITORY"
+          companion_version="$(tr -d '\r\n' < companion/VERSION)"
+          [[ "$companion_version" =~ ^1\.[0-9]{2,}$ ]] || { echo "Invalid Companion version"; exit 1; }
+          title="Jona Homelab $version (Companion $companion_version)"
           assets=(
             artifacts/jona-homelab.tar.gz
             artifacts/jona-homelab.tar.gz.sha256
@@ -190,7 +193,7 @@ jobs:
           )
           if gh release view "$version" --repo "$repository" >/dev/null 2>&1; then
             gh release upload "$version" "${assets[@]}" --repo "$repository" --clobber
-            gh release edit "$version" --repo "$repository" --title "Jona Homelab $version" --latest
+            gh release edit "$version" --repo "$repository" --title "$title" --latest
           else
-            gh release create "$version" "${assets[@]}" --repo "$repository" --target "$GITHUB_SHA" --title "Jona Homelab $version" --generate-notes --latest
+            gh release create "$version" "${assets[@]}" --repo "$repository" --target "$GITHUB_SHA" --title "$title" --generate-notes --latest
           fi

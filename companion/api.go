@@ -46,7 +46,7 @@ func (r *runtimeState) health(writer http.ResponseWriter, request *http.Request)
 		writePlainStatus(writer, http.StatusForbidden)
 		return
 	}
-	writeJSON(writer, http.StatusOK, map[string]any{"status": "ok", "version": releaseVersion(), "simulated": r.simulated})
+	writeJSON(writer, http.StatusOK, map[string]any{"status": "ok", "version": releaseVersion(), "displayVersion": companionVersion(), "simulated": r.simulated})
 }
 
 func (r *runtimeState) status(writer http.ResponseWriter, request *http.Request) {
@@ -63,7 +63,7 @@ func (r *runtimeState) status(writer http.ResponseWriter, request *http.Request)
 	r.config.recordServerCall(time.Now())
 	logEvent("status.ok", map[string]any{"client": remoteIP(request).String()})
 	responseBody, _ := json.Marshal(map[string]any{
-		"ready": true, "version": releaseVersion(), "accepted": true,
+		"ready": true, "version": releaseVersion(), "displayVersion": companionVersion(), "accepted": true,
 		"remoteUpdate": !r.simulated, "update": readUpdateStatus(),
 	})
 	r.writeSigned(writer, http.StatusOK, nonce, responseBody)

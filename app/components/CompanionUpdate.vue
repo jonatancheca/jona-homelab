@@ -70,7 +70,7 @@ onUnmounted(() => clearInterval(poll))
 <template>
   <section class="companion-update" aria-label="Versión de Companion">
     <div class="companion-version-line"><strong>Companion</strong><span class="status-pill" :class="{ online: companion?.state === 'current' && !updating }">{{ stateLabel }}</span></div>
-    <p>Instalada: <code>{{ companion?.version || 'No comprobada' }}</code><br />Última publicada: <code>{{ companion?.latestVersion || 'No comprobada' }}</code></p>
+    <p>Instalada: <code :title="companion?.version || undefined">{{ companion?.displayVersion || companion?.version || 'No comprobada' }}</code><br />Última publicada: <code :title="companion?.latestVersion || undefined">{{ companion?.latestDisplayVersion || companion?.latestVersion || 'No comprobada' }}</code></p>
     <p v-if="companion?.state === 'local'">Instalación manual. Las versiones locales no se actualizan automáticamente.</p>
     <p v-else-if="status?.remoteReady && companion && !companion.remoteUpdate">Necesita instalación manual inicial para habilitar actualización remota.</p>
     <p v-if="companion?.releaseError">{{ companion.releaseError }}</p>

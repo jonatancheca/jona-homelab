@@ -4,6 +4,7 @@ package main
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -39,6 +40,17 @@ func TestStatusRequiresPrivateSignedRequestAndRejectsReplay(t *testing.T) {
 	}
 	if !verifyResponse(secret, response.Code, nonce, response.Body.String(), response.Header().Get(responseSignatureHeader)) {
 		t.Fatal("response signature rejected")
+	}
+	var versions struct {
+		Version        string `json:"version"`
+		DisplayVersion string `json:"displayVersion"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &versions); err != nil || versions.Version != releaseVersion() || versions.DisplayVersion != companionVersion() {
+		t.Fatalf("signed status lost release or display version: %+v, %v", versions, err)
+	}
+	var info pipeInfo
+	if err := json.Unmarshal([]byte(handlePipeRequest(request.Context(), state, `{"action":"get-info"}`)), &info); err != nil || info.DisplayVersion != companionVersion() || info.Version != versions.Version {
+		t.Fatalf("local tray and signed API versions differ: %+v, %v", info, err)
 	}
 	replay := httptest.NewRecorder()
 	state.handler().ServeHTTP(replay, request)

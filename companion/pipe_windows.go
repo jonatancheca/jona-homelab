@@ -17,6 +17,7 @@ import (
 type pipeInfo struct {
 	Ready          bool         `json:"ready"`
 	Version        string       `json:"version"`
+	DisplayVersion string       `json:"displayVersion,omitempty"`
 	Port           int          `json:"port"`
 	PairingCode    string       `json:"pairingCode"`
 	LastServerCall string       `json:"lastServerCall,omitempty"`
@@ -132,14 +133,14 @@ func handlePipeRequest(ctx context.Context, state *runtimeState, request string)
 		if err != nil {
 			return localError(err)
 		}
-		return marshalLocal(pipeInfo{Ready: true, Version: releaseVersion(), Port: companionPort, PairingCode: code, LastServerCall: state.config.lastServerCall(), Update: readUpdateStatus()})
+		return marshalLocal(pipeInfo{Ready: true, Version: releaseVersion(), DisplayVersion: companionVersion(), Port: companionPort, PairingCode: code, LastServerCall: state.config.lastServerCall(), Update: readUpdateStatus()})
 	case "rotate":
 		logEvent("pairing.rotate", nil)
 		code, err := state.config.rotateSecret()
 		if err != nil {
 			return localError(err)
 		}
-		return marshalLocal(pipeInfo{Ready: true, Version: releaseVersion(), Port: companionPort, PairingCode: code, LastServerCall: state.config.lastServerCall(), Update: readUpdateStatus()})
+		return marshalLocal(pipeInfo{Ready: true, Version: releaseVersion(), DisplayVersion: companionVersion(), Port: companionPort, PairingCode: code, LastServerCall: state.config.lastServerCall(), Update: readUpdateStatus()})
 	case "check-update":
 		result, err := state.updates.checkAndSchedule(ctx)
 		if err != nil {

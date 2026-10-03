@@ -51,19 +51,39 @@ test('release errors do not change connectivity or claim latest version', () => 
   }
 })
 
+test('numbered release metadata preserves the updater identifier and supports old releases', async () => {
+  for (const displayVersion of ['1.00', '1.09', '1.100', undefined]) {
+    const lookup = createReleaseLookup((async () => Response.json({ ...release, name: displayVersion ? `Jona Homelab ${version} (Companion ${displayVersion})` : `Jona Homelab ${version}` })) as typeof fetch)
+    const latest = await lookup()
+    assert.equal(latest.version, version)
+    assert.equal(latest.displayVersion, displayVersion)
+    const result = withCompanionRelease(status, latest)
+    assert.equal(result.companion?.latestDisplayVersion, displayVersion)
+    assert.equal(result.companion?.state, 'available')
+  }
+})
+
 test('signed status retains installed version and strips unknown capabilities and fields', async () => {
-  const fetcher = signedFetcher(() => ({ ready: true, version: oldVersion, remoteUpdate: true, update: { phase: 'failed', error: 'checksum mismatch', pid: 123 } }))
+  const fetcher = signedFetcher(() => ({ ready: true, version: oldVersion, displayVersion: '1.00', remoteUpdate: true, update: { phase: 'failed', error: 'checksum mismatch', pid: 123 } }))
   const reply = await readCompanionStatus(device, secret, fetcher)
   assert.equal(reply.version, oldVersion)
+  assert.equal(reply.displayVersion, '1.00')
   assert.equal(reply.remoteUpdate, true)
   assert.equal(reply.operation?.error, 'checksum mismatch')
   assert.equal('pid' in reply.operation!, false)
   const result = await checkDeviceStatus(device, undefined, async () => false, 'win32', secret, async () => reply)
   assert.equal(result.remoteReady, true)
   assert.equal(result.companion?.version, oldVersion)
+  assert.equal(result.companion?.displayVersion, '1.00')
   const legacy = await readCompanionStatus(device, secret, signedFetcher(() => ({ ready: true, version: oldVersion })))
   assert.equal(legacy.remoteUpdate, false)
   assert.equal(legacy.version, oldVersion)
+  assert.equal(legacy.displayVersion, undefined)
+  for (const displayVersion of ['1.0', '<b>1.00</b>', 1, 'main-111111111111']) {
+    const invalid = await readCompanionStatus(device, secret, signedFetcher(() => ({ ready: true, version: oldVersion, displayVersion })))
+    assert.equal(invalid.displayVersion, undefined)
+    assert.equal(invalid.version, oldVersion)
+  }
 })
 
 test('remote updates reject legacy/local companions and accept only a signed result', async () => {

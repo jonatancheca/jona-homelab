@@ -48,7 +48,9 @@ export interface CompanionOperation {
 
 export interface CompanionStatus {
   version: string | null
+  displayVersion?: string
   latestVersion: string | null
+  latestDisplayVersion?: string
   remoteUpdate: boolean
   state: 'current' | 'available' | 'updating' | 'unknown' | 'local' | 'failed'
   releaseCheckedAt?: string

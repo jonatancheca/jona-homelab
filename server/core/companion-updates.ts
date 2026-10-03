@@ -5,7 +5,7 @@ import { readCompanionStatus, requestCompanionPayload } from './remote.ts'
 const repository = 'jonatancheca/jona-homelab'
 const archive = 'jona-homelab-companion-win-x64.zip'
 const tagPattern = /^main-[a-f0-9]{12}$/
-export interface CompanionRelease { version: string | null, checkedAt: string, error?: string }
+export interface CompanionRelease { version: string | null, displayVersion?: string, checkedAt: string, error?: string }
 
 export function createReleaseLookup(fetcher: typeof fetch = fetch, now = Date.now) {
   let cached: CompanionRelease | undefined
@@ -20,13 +20,14 @@ export function createReleaseLookup(fetcher: typeof fetch = fetch, now = Date.no
           headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'JonaHomelab' }, signal: AbortSignal.timeout(5000), redirect: 'error',
         })
         if (!response.ok) throw new Error('GitHub no respondió correctamente.')
-        const release = await response.json() as { tag_name?: unknown, draft?: boolean, prerelease?: boolean, assets?: Array<{ name: string, browser_download_url: string }> }
+        const release = await response.json() as { tag_name?: unknown, name?: unknown, draft?: boolean, prerelease?: boolean, assets?: Array<{ name: string, browser_download_url: string }> }
         if (typeof release.tag_name !== 'string' || !tagPattern.test(release.tag_name) || release.draft || release.prerelease || !Array.isArray(release.assets)) throw new Error('Release no válida.')
         const prefix = `https://github.com/${repository}/releases/download/${release.tag_name}/`
         for (const name of [archive, `${archive}.sha256`]) {
           if (!release.assets.some(asset => asset.name === name && asset.browser_download_url === prefix + name)) throw new Error('Falta el paquete de Companion o su checksum.')
         }
-        cached = { version: release.tag_name, checkedAt: new Date(now()).toISOString() }
+        const displayVersion = typeof release.name === 'string' ? /\(Companion (1\.\d{2,})\)$/.exec(release.name)?.[1] : undefined
+        cached = { version: release.tag_name, displayVersion, checkedAt: new Date(now()).toISOString() }
         expires = now() + 5 * 60_000
       }
       catch {
@@ -44,7 +45,7 @@ export const activeUpdatePhases = new Set(['checking', 'scheduled', 'downloading
 
 export function withCompanionRelease(status: DeviceStatus, release: CompanionRelease): DeviceStatus {
   if (!status.companion) return status
-  const companion = { ...status.companion, latestVersion: release.version, releaseCheckedAt: release.checkedAt, releaseError: release.error }
+  const companion = { ...status.companion, latestVersion: release.version, latestDisplayVersion: release.displayVersion, releaseCheckedAt: release.checkedAt, releaseError: release.error }
   const phase = companion.operation?.phase
   if (!status.remoteReady || !companion.version) companion.state = 'unknown'
   else if (!tagPattern.test(companion.version)) companion.state = 'local'

@@ -71,6 +71,10 @@ Archivos en `C:\ProgramData\JonaHomelabCompanion`:
 
 ## Paquetes locales y actualizaciones
 
+La versión visible de Companion procede de `companion/VERSION` y empieza en `1.00`. Cada commit incrementa el contador (`1.01`, `1.02`, …, `1.100`). Se incorpora al binario al compilar y se muestra tanto en la ventana de Companion como en su ficha web. El identificador `main-<commit>` sigue identificando los paquetes para actualizar, verificar y restaurar instalaciones; las versiones antiguas que no informan del número visible muestran ese identificador.
+
+Al abrir la ventana desde la bandeja se refresca la información y se comprueba la última release mediante el mismo sistema que **Check for updates**. Si encuentra una actualización, el sistema existente programa su instalación. La comprobación se ejecuta en segundo plano y muestra el resultado junto a la versión; las compilaciones locales conservan la instalación manual. Activar una ventana que ya está abierta no repite la consulta.
+
 La web muestra la versión instalada y la última release que incluye el ZIP de Companion y su checksum. La consulta a GitHub se comparte entre dispositivos y se almacena durante cinco minutos; los errores se reintentan después de treinta segundos y no cambian el estado de conexión del PC.
 
 En versiones compatibles, **Actualizar Companion** envía una petición firmada a `POST /v1/update` con un objeto vacío. Solo se admiten los archivos de la release publicada del repositorio configurado. La consulta normal `GET /v1/status` no instala nada: devuelve versión, capacidad `remoteUpdate` y estado de la operación. Las versiones antiguas siguen mostrando su versión y necesitan una primera instalación manual para incorporar esta capacidad.

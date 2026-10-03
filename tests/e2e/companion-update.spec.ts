@@ -10,7 +10,8 @@ test('confirms the new version after restart, keeps pending across disconnect an
   await page.route('**/api/devices', route => route.fulfill({ json: [device] }))
   await page.route('**/api/devices/status', route => route.fulfill({ json: [{
     deviceId: device.id, networkReachable: phase !== 'offline', remoteReady: phase !== 'offline', remoteMethod: 'companion', checkedAt: '',
-    companion: { version: phase === 'current' ? latestVersion : phase === 'offline' ? null : oldVersion, latestVersion, remoteUpdate: phase !== 'offline',
+    companion: { version: phase === 'current' ? latestVersion : phase === 'offline' ? null : oldVersion, latestVersion,
+      displayVersion: phase === 'offline' ? undefined : phase === 'current' ? '1.01' : '1.00', latestDisplayVersion: '1.01', remoteUpdate: phase !== 'offline',
       state: phase === 'available' ? 'available' : phase === 'current' ? 'current' : phase === 'offline' ? 'unknown' : 'updating',
       operation: phase === 'scheduled' ? { phase: 'scheduled', targetVersion: latestVersion } : undefined },
   }] }))
@@ -18,7 +19,9 @@ test('confirms the new version after restart, keeps pending across disconnect an
   await page.goto('/')
   const section = page.getByRole('region', { name: 'Versión de Companion' })
   await expect(section.getByText('Actualización disponible', { exact: true })).toBeVisible()
-  await expect(section.getByText(oldVersion, { exact: true })).toBeVisible()
+  await expect(section.getByText('1.00', { exact: true })).toBeVisible()
+  await expect(section.getByText('1.00', { exact: true })).toHaveAttribute('title', oldVersion)
+  await expect(section.getByText('1.01', { exact: true })).toBeVisible()
   for (const width of [320, 390, 1280]) {
     await page.setViewportSize({ width, height: 900 })
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
@@ -34,6 +37,7 @@ test('confirms the new version after restart, keeps pending across disconnect an
   await page.getByRole('button', { name: 'Refresh status' }).click()
   await expect(section.getByText('Actualización confirmada:', { exact: false })).toBeVisible()
   await expect(section.getByText('Actualizado', { exact: true })).toBeVisible()
+  await expect(section.locator('code')).toHaveText(['1.01', '1.01'])
   expect(requests).toBe(1)
 })
 
@@ -49,6 +53,7 @@ test('shows local, legacy, release failure and rollback without claiming success
   await page.goto('/')
   const section = page.getByRole('region', { name: 'Versión de Companion' })
   await expect(section.getByText('Necesita instalación manual inicial', { exact: false })).toBeVisible()
+  await expect(section.getByText(oldVersion, { exact: true })).toBeVisible()
   await expect(section.getByRole('button')).toHaveCount(0)
   mode = 'local'
   await page.getByRole('button', { name: 'Refresh status' }).click()

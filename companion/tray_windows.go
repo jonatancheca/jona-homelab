@@ -210,6 +210,9 @@ type trayApplication struct {
 	mu             sync.Mutex
 	busy           bool
 	pending        *trayResult
+	updateOnOpen   bool
+	versionText    string
+	request        func(string) ([]byte, error)
 }
 
 func runTray() error {
@@ -323,7 +326,8 @@ func (t *trayApplication) createControls() {
 
 	t.update = t.button("Check for updates", 32, 574, 176, 38, idUpdate, trayBackground)
 	t.diagnostics = t.button("Generate diagnostics", 220, 574, 204, 38, idDiagnostics, trayBackground)
-	t.version = t.label("Version —", 32, 626, 596, 18, t.theme.small, trayMuted, trayBackground)
+	t.versionText = "Version " + companionVersion()
+	t.version = t.label(t.versionText, 32, 626, 596, 18, t.theme.small, trayMuted, trayBackground)
 	t.button("Exit tray", 516, 574, 112, 38, idExit, trayBackground)
 }
 
@@ -461,6 +465,8 @@ func (t *trayApplication) startAction(action string) {
 	t.mu.Unlock()
 	if action == "diagnostics" {
 		setWindowText(t.diagnostics, "Generating...")
+	} else if action == "open-update" {
+		setWindowText(t.version, t.versionText+" · Checking for updates...")
 	} else {
 		t.setStatus("Connecting to service", trayStatusPending)
 	}
@@ -468,18 +474,26 @@ func (t *trayApplication) startAction(action string) {
 		procEnableWindow.Call(uintptr(button), 0)
 	}
 	hwnd := t.hwnd
+	request := t.request
+	if request == nil {
+		request = callPipeRaw
+	}
 	go func() {
 		result := trayResult{action: action}
 		if action == "diagnostics" {
 			result.diagnosticsDirectory, result.err = generateDiagnostics(hwnd)
-		} else if action == "update" {
-			response, err := callPipeRaw("check-update")
+		} else if action == "update" || action == "open-update" {
+			response, err := request("check-update")
 			result.err = err
 			if err == nil {
 				result.err = jsonUnmarshal(response, &result.update)
 			}
 		} else {
-			result.info, result.err = callPipe(actionForPipe(action))
+			response, err := request(actionForPipe(action))
+			result.err = err
+			if err == nil {
+				result.err = jsonUnmarshal(response, &result.info)
+			}
 		}
 		t.mu.Lock()
 		t.pending = &result
@@ -501,11 +515,29 @@ func (t *trayApplication) finishAction() {
 	t.pending = nil
 	t.busy = false
 	t.mu.Unlock()
+	defer func() {
+		// An opening queued during the startup refresh must still check once.
+		if t.updateOnOpen {
+			t.updateOnOpen = false
+			if result != nil && result.err == nil && result.action != "update" && result.action != "open-update" {
+				t.startAction("open-update")
+			}
+		}
+	}()
 	for _, button := range []windows.HWND{t.copy, t.rotate, t.refresh, t.update, t.diagnostics} {
 		procEnableWindow.Call(uintptr(button), 1)
 	}
 	setWindowText(t.diagnostics, "Generate diagnostics")
 	if result == nil {
+		return
+	}
+	if result.action == "open-update" {
+		text, status := trayServiceStatus(result.err)
+		if result.err == nil && result.update.Scheduled {
+			text, status = "Update requested", trayStatusPending
+		}
+		t.setStatus(text, status)
+		setWindowText(t.version, t.versionText+" · "+automaticUpdateMessage(result.update, result.err))
 		return
 	}
 	if result.action == "diagnostics" {
@@ -559,6 +591,19 @@ func updateCheckMessage(result updateCheckResult) string {
 	return "Already up to date."
 }
 
+func automaticUpdateMessage(result updateCheckResult, err error) string {
+	if err != nil {
+		return "Update check failed. Use Check for updates to retry."
+	}
+	if result.LocalBuild {
+		return "Local build; manual updates"
+	}
+	if result.Scheduled {
+		return "Update requested"
+	}
+	return "Up to date"
+}
+
 func (t *trayApplication) refreshInfo() { t.startAction("refresh") }
 
 func (t *trayApplication) updateInfo(info pipeInfo) {
@@ -577,7 +622,12 @@ func (t *trayApplication) updateInfo(info pipeInfo) {
 	}
 	setWindowText(t.lastCall, lastCall)
 	setWindowText(t.details, fmt.Sprintf("LOCAL NETWORK   %s   ·   PORT %d", localIPv4(), info.Port))
-	setWindowText(t.version, "Version "+info.Version)
+	version := info.DisplayVersion
+	if version == "" {
+		version = info.Version
+	}
+	t.versionText = "Version " + version
+	setWindowText(t.version, t.versionText)
 }
 
 func (t *trayApplication) show() {
@@ -585,10 +635,12 @@ func (t *trayApplication) show() {
 		procSetForegroundWindow.Call(uintptr(t.dialog))
 		return
 	}
+	visible, _, _ := user32.NewProc("IsWindowVisible").Call(uintptr(t.hwnd))
 	procShowWindow.Call(uintptr(t.hwnd), swShow)
 	procSetForegroundWindow.Call(uintptr(t.hwnd))
 	procUpdateWindow.Call(uintptr(t.hwnd))
-	if t.code == 0 {
+	if visible == 0 {
+		t.updateOnOpen = true
 		t.refreshInfo()
 	}
 }
