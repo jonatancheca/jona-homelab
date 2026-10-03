@@ -10,5 +10,8 @@ export default apiHandler(async () => {
     checkDevicesStatus(devices, settings.ssh, device => store.companionSecretOrNull(device.id)),
     devices.some(device => device.remoteMethod === 'companion') ? latestCompanionRelease() : Promise.resolve(null),
   ])
-  return release ? statuses.map(status => withCompanionRelease(status, release)) : statuses
+  return statuses.flatMap((status, index) => {
+    const recorded = store.recordStatus(devices[index]!, status)
+    return recorded ? [release ? withCompanionRelease(recorded, release) : recorded] : []
+  })
 })

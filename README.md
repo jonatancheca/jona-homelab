@@ -13,6 +13,8 @@ Nuxt 4 + SQLite integrado en Node. Un proceso para la aplicación y otro para `c
 
 «Paquete enviado» significa que el sistema operativo aceptó el datagrama UDP. **No confirma entrega ni arranque.** «Online» significa que responde ICMP o acepta la autenticación SSH configurada; «No responde» no demuestra que esté apagado.
 
+Cuando un equipo deja de responder, la tarjeta muestra «Última vez visto encendido» con la fecha y hora de la última respuesta positiva de ping, SSH o Companion. Si nunca se ha observado encendido, muestra «Sin registros». El historial se guarda en SQLite y se conserva al recargar o reiniciar; enviar Wake-on-LAN no lo actualiza. Se registra durante las comprobaciones del panel (cada 30 segundos mientras está abierto y al refrescar manualmente), no mediante monitorización continua en segundo plano. Cambiar la MAC o la dirección reinicia este dato para evitar atribuir el historial a otro equipo. «No response» sigue sin confirmar que el equipo esté apagado.
+
 ## Desarrollo
 
 Con Node 24 LTS y pnpm 11.2.0:

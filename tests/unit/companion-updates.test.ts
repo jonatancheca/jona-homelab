@@ -7,10 +7,10 @@ import { checkDeviceStatus, companionResponseSignature, readCompanionStatus } fr
 const version = 'main-111111111111'
 const oldVersion = 'main-000000000000'
 const archive = 'jona-homelab-companion-win-x64.zip'
-const device: Device = { id: 'updates-test', name: 'PC', mac: 'AA:BB:CC:DD:EE:FF', address: '192.168.1.2', sshUser: null, remoteMethod: 'companion', companionConfigured: true, createdAt: '', updatedAt: '', lastSentAt: null }
+const device: Device = { id: 'updates-test', name: 'PC', mac: 'AA:BB:CC:DD:EE:FF', address: '192.168.1.2', sshUser: null, remoteMethod: 'companion', companionConfigured: true, createdAt: '', updatedAt: '', lastSentAt: null, lastSeenAt: null }
 const secret = Buffer.alloc(32, 7).toString('base64url')
 const release = { tag_name: version, assets: [archive, `${archive}.sha256`].map(name => ({ name, browser_download_url: `https://github.com/jonatancheca/jona-homelab/releases/download/${version}/${name}` })) }
-const status: DeviceStatus = { deviceId: device.id, networkReachable: true, remoteReady: true, remoteMethod: 'companion', checkedAt: '', companion: { version: oldVersion, latestVersion: null, remoteUpdate: true, state: 'unknown' } }
+const status: DeviceStatus = { deviceId: device.id, networkReachable: true, remoteReady: true, remoteMethod: 'companion', checkedAt: '', lastSeenAt: null, companion: { version: oldVersion, latestVersion: null, remoteUpdate: true, state: 'unknown' } }
 
 function signedFetcher(handler: (path: string, init?: RequestInit) => Record<string, unknown> | Promise<Record<string, unknown>>): typeof fetch {
   return (async (url, init) => {
@@ -74,6 +74,7 @@ test('signed status retains installed version and strips unknown capabilities an
   const result = await checkDeviceStatus(device, undefined, async () => false, 'win32', secret, async () => reply)
   assert.equal(result.remoteReady, true)
   assert.equal(result.companion?.version, oldVersion)
+  assert.equal(result.lastSeenAt, result.checkedAt)
   assert.equal(result.companion?.displayVersion, '1.00')
   const legacy = await readCompanionStatus(device, secret, signedFetcher(() => ({ ready: true, version: oldVersion })))
   assert.equal(legacy.remoteUpdate, false)

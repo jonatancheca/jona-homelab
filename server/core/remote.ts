@@ -173,7 +173,9 @@ export async function checkDeviceStatus(
     remoteUpdate: typeof reply === 'object' && reply.remoteUpdate, state: 'unknown' as const,
     operation: typeof reply === 'object' ? reply.operation : undefined,
   } : undefined
-  return { deviceId: device.id, networkReachable, remoteReady, remoteMethod, checkedAt: new Date().toISOString(), ...(companion ? { companion } : {}) }
+  const checkedAt = new Date().toISOString()
+  const lastSeenAt = networkReachable || remoteReady ? checkedAt : device.lastSeenAt
+  return { deviceId: device.id, networkReachable, remoteReady, remoteMethod, checkedAt, lastSeenAt, ...(companion ? { companion } : {}) }
 }
 
 export async function checkDevicesStatus(

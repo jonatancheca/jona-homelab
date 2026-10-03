@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import type { Device, DeviceInput, RemoteMethod } from '../../shared/types/device.ts'
+import type { Device, DeviceInput, DeviceStatus, RemoteMethod } from '../../shared/types/device.ts'
 import { companionSecretFromCode } from './validation.ts'
 import { AppError } from './errors.ts'
 
@@ -43,6 +43,10 @@ const DATABASE_MIGRATIONS = [
       ALTER TABLE devices ADD COLUMN companionSecret TEXT;
     `,
   },
+  {
+    version: 5,
+    sql: 'ALTER TABLE devices ADD COLUMN lastSeenAt TEXT;',
+  },
 ] as const
 
 const CURRENT_DATABASE_VERSION = DATABASE_MIGRATIONS.length
@@ -58,6 +62,7 @@ interface DeviceRow {
   createdAt: string
   updatedAt: string
   lastSentAt: string | null
+  lastSeenAt: string | null
   lastAttemptMs: number | null
   lastShutdownAttemptMs: number | null
 }
@@ -74,6 +79,7 @@ function publicDevice(row: DeviceRow): Device {
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     lastSentAt: row.lastSentAt,
+    lastSeenAt: row.lastSeenAt,
   }
 }
 
@@ -169,9 +175,10 @@ export class DeviceStore {
     try {
       this.database.prepare(`UPDATE devices SET name = ?,
         lastSentAt = CASE WHEN mac = ? THEN lastSentAt ELSE NULL END,
+        lastSeenAt = CASE WHEN mac = ? AND address IS ? THEN lastSeenAt ELSE NULL END,
         lastShutdownAttemptMs = CASE WHEN address = ? AND remoteMethod = ? AND sshUser IS ? AND companionSecret IS ? THEN lastShutdownAttemptMs ELSE NULL END,
         mac = ?, address = ?, sshUser = ?, remoteMethod = ?, companionSecret = ?, updatedAt = ? WHERE id = ?`)
-        .run(input.name, input.mac, input.address, remoteMethod, remoteMethod === 'ssh' ? input.sshUser : null,
+        .run(input.name, input.mac, input.mac, input.address, input.address, remoteMethod, remoteMethod === 'ssh' ? input.sshUser : null,
           remoteMethod === 'companion' ? companionSecret : null,
           input.mac, input.address, remoteMethod === 'ssh' ? input.sshUser : null, remoteMethod, companionSecret,
           new Date(now).toISOString(), id)
@@ -205,6 +212,17 @@ export class DeviceStore {
       throw new AppError(409, 'Packet sent, but the device changed during sending. Refresh the list.')
     }
     return this.get(id)
+  }
+
+  recordStatus(device: Device, status: DeviceStatus): DeviceStatus | null {
+    // Ignore probes for devices edited/deleted in flight; older probes cannot move the timestamp back.
+    const row = this.database.prepare(`UPDATE devices SET lastSeenAt =
+      CASE WHEN ? AND (lastSeenAt IS NULL OR lastSeenAt < ?) THEN ? ELSE lastSeenAt END
+      WHERE id = ? AND mac = ? AND address IS ? AND updatedAt = ?
+      RETURNING lastSeenAt`)
+      .get(Number(status.networkReachable || status.remoteReady), status.checkedAt, status.checkedAt,
+        device.id, device.mac, device.address, device.updatedAt) as { lastSeenAt: string | null } | undefined
+    return row ? { ...status, lastSeenAt: row.lastSeenAt } : null
   }
 
   claimShutdown(id: string, now = Date.now()): Device {

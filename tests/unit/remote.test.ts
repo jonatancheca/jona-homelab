@@ -16,6 +16,7 @@ const device: Device = {
   createdAt: '2026-01-01T00:00:00.000Z',
   updatedAt: '2026-01-01T00:00:00.000Z',
   lastSentAt: null,
+  lastSeenAt: null,
 }
 const ssh = { identityFile: '/etc/jona-homelab/ssh/id_ed25519', knownHostsFile: '/etc/jona-homelab/ssh/known_hosts', port: 22 }
 
@@ -51,6 +52,7 @@ test('status checks ping and authenticated SSH independently', async () => {
   const status = await checkDeviceStatus(device, ssh, runner, 'linux')
   assert.equal(status.networkReachable, false)
   assert.equal(status.remoteReady, true)
+  assert.equal(status.lastSeenAt, status.checkedAt)
   assert.equal(status.remoteMethod, 'ssh')
   assert.deepEqual(calls.map(call => call.command).sort(), ['ping', 'ssh'])
   assert.equal(calls.find(call => call.command === 'ping')?.timeout, 3000)
@@ -62,6 +64,7 @@ test('unconfigured legacy device is reported without executing processes', async
   const status = await checkDeviceStatus({ ...device, address: null, sshUser: null }, ssh, runner)
   assert.equal(status.networkReachable, false)
   assert.equal(status.remoteReady, false)
+  assert.equal(status.lastSeenAt, null)
 })
 
 test('Wake-on-LAN-only status checks configured IP or machine name with ping only', async () => {
@@ -70,10 +73,19 @@ test('Wake-on-LAN-only status checks configured IP or machine name with ping onl
     const runner: CommandRunner = async (command, args) => { calls.push({ command, args }); return true }
     const status = await checkDeviceStatus({ ...device, address, sshUser: null, remoteMethod: 'none' }, ssh, runner)
     assert.equal(status.networkReachable, true)
+    assert.equal(status.lastSeenAt, status.checkedAt)
     assert.equal(status.remoteReady, false)
     assert.equal(status.remoteMethod, 'none')
     assert.deepEqual(calls, [{ command: 'ping', args: pingArguments(address) }])
   }
+})
+
+test('no response preserves the last confirmed observation', async () => {
+  const lastSeenAt = '2026-10-01T08:30:00.000Z'
+  const status = await checkDeviceStatus({ ...device, lastSeenAt }, ssh, async () => false)
+  assert.equal(status.networkReachable, false)
+  assert.equal(status.remoteReady, false)
+  assert.equal(status.lastSeenAt, lastSeenAt)
 })
 
 test('shutdown maps safe and forced choices to fixed remote commands', async () => {

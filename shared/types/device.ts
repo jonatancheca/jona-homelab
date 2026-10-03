@@ -9,6 +9,7 @@ export interface Device {
   createdAt: string
   updatedAt: string
   lastSentAt: string | null
+  lastSeenAt: string | null
 }
 
 export type RemoteMethod = 'ssh' | 'companion' | 'none'
@@ -36,6 +37,7 @@ export interface DeviceStatus {
   remoteReady: boolean
   remoteMethod: RemoteMethod
   checkedAt: string
+  lastSeenAt: string | null
   companion?: CompanionStatus
 }
 

@@ -6,8 +6,13 @@ import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { DeviceStore } from '../../server/core/database.ts'
 import { powerDevice, shutdownDevice, wakeDevice } from '../../server/core/service.ts'
+import type { Device, DeviceStatus } from '../../shared/types/device.ts'
 
 const input = { name: 'Server', mac: 'AA:BB:CC:DD:EE:FF', address: '192.168.1.25', sshUser: 'jona-homelab-remote' }
+
+function deviceStatus(device: Device, checkedAt: string, networkReachable = false, remoteReady = false): DeviceStatus {
+  return { deviceId: device.id, remoteMethod: device.remoteMethod, checkedAt, networkReachable, remoteReady, lastSeenAt: device.lastSeenAt }
+}
 
 function databaseVersion(database: DatabaseSync): number {
   return database.prepare('PRAGMA user_version').get()!.user_version as number
@@ -51,6 +56,7 @@ test('CRUD, SQL parameterization, uniqueness and missing devices', () => {
     assert.deepEqual(store.list(), [])
     const device = store.create(input)
     assert.equal(device.lastSentAt, null)
+    assert.equal(device.lastSeenAt, null)
     assert.throws(() => store.create(input), { statusCode: 409 })
     const second = store.create({ ...input, name: 'PC', mac: 'AA:BB:CC:DD:EE:00', address: '192.168.1.26' })
     assert.throws(() => store.update(second.id, input), { statusCode: 409 })
@@ -94,7 +100,7 @@ test('creates the current schema for a new database', () => {
     const store = new DeviceStore(path)
     store.close()
     const database = new DatabaseSync(path)
-    assert.equal(databaseVersion(database), 4)
+    assert.equal(databaseVersion(database), 5)
     assert.equal(
       database.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?")
         .get('idx_devices_name_nocase')!.name,
@@ -105,7 +111,7 @@ test('creates the current schema for a new database', () => {
   finally { rmSync(directory, { recursive: true, force: true }) }
 })
 
-test('migrates version 1 to 3 without losing devices and is idempotent', () => {
+test('migrates version 1 to the current schema without losing devices and is idempotent', () => {
   const directory = mkdtempSync(join(tmpdir(), 'homelab-migration-test-'))
   const path = join(directory, 'legacy.sqlite')
   let first: DeviceStore | undefined
@@ -124,6 +130,7 @@ test('migrates version 1 to 3 without losing devices and is idempotent', () => {
       createdAt: '2026-01-01T00:00:00.000Z',
       updatedAt: '2026-01-02T00:00:00.000Z',
       lastSentAt: '2026-01-03T00:00:00.000Z',
+      lastSeenAt: null,
     }])
     assert.throws(() => first!.claimWake('legacy', 1001), { statusCode: 429, retryAfter: 5 })
     first.close()
@@ -135,7 +142,7 @@ test('migrates version 1 to 3 without losing devices and is idempotent', () => {
     second = undefined
 
     const database = new DatabaseSync(path)
-    assert.equal(databaseVersion(database), 4)
+    assert.equal(databaseVersion(database), 5)
     assert.equal(
       database.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'index' AND name = ?")
         .get('idx_devices_name_nocase')!.count,
@@ -149,6 +156,79 @@ test('migrates version 1 to 3 without losing devices and is idempotent', () => {
     database.close()
   }
   finally { first?.close(); second?.close(); rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }) }
+})
+
+test('migrates version 4 and persists last seen across connections and restarts', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'homelab-last-seen-test-'))
+  const path = join(directory, 'legacy.sqlite')
+  let store: DeviceStore | undefined
+  let other: DeviceStore | undefined
+  try {
+    createVersionTwoDatabase(path)
+    const legacy = new DatabaseSync(path)
+    legacy.exec(`
+      ALTER TABLE devices ADD COLUMN address TEXT;
+      ALTER TABLE devices ADD COLUMN sshUser TEXT;
+      ALTER TABLE devices ADD COLUMN lastShutdownAttemptMs INTEGER;
+      ALTER TABLE devices ADD COLUMN remoteMethod TEXT NOT NULL DEFAULT 'ssh';
+      ALTER TABLE devices ADD COLUMN companionSecret TEXT;
+      PRAGMA user_version = 4;
+    `)
+    legacy.close()
+    store = new DeviceStore(path)
+    assert.equal(store.get('legacy').lastSeenAt, null)
+    assert.equal(store.get('legacy').lastSentAt, '2026-01-03T00:00:00.000Z')
+    const device = store.update('legacy', input)
+    const seen = '2026-10-01T08:30:00.000Z'
+    store.recordStatus(device, deviceStatus(device, seen, true))
+    other = new DeviceStore(path)
+    assert.equal(other.get(device.id).lastSeenAt, seen)
+    store.close()
+    store = new DeviceStore(path)
+    const offline = store.recordStatus(device, deviceStatus(device, '2026-10-02T08:30:00.000Z'))
+    assert.equal(offline?.lastSeenAt, seen)
+    assert.equal(store.list()[0]!.lastSeenAt, seen)
+    assert.equal(store.get(device.id).updatedAt, device.updatedAt)
+  }
+  finally { store?.close(); other?.close(); rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }) }
+})
+
+test('last seen requires a positive probe and never moves backwards', () => {
+  const store = new DeviceStore(':memory:')
+  try {
+    const device = store.create(input)
+    const earlier = '2026-10-01T08:30:00.000Z'
+    const later = '2026-10-01T09:30:00.000Z'
+    assert.equal(store.recordStatus(device, deviceStatus(device, earlier))?.lastSeenAt, null)
+    assert.equal(store.recordStatus(device, deviceStatus(device, earlier, true))?.lastSeenAt, earlier)
+    assert.equal(store.recordStatus(device, deviceStatus(device, later, false, true))?.lastSeenAt, later)
+    assert.equal(store.recordStatus(device, deviceStatus(device, earlier, true))?.lastSeenAt, later)
+    assert.equal(store.recordStatus(device, deviceStatus(device, '2026-10-02T08:30:00.000Z'))?.lastSeenAt, later)
+    assert.equal(store.get(device.id).lastSentAt, null)
+  }
+  finally { store.close() }
+})
+
+test('last seen survives renames but resets for a different target and ignores stale probes', () => {
+  const store = new DeviceStore(':memory:')
+  try {
+    const device = store.create(input, 1000)
+    const seen = '2026-10-01T08:30:00.000Z'
+    store.recordStatus(device, deviceStatus(device, seen, true))
+    const renamed = store.update(device.id, { ...input, name: 'Renamed' }, 2000)
+    assert.equal(renamed.lastSeenAt, seen)
+    const moved = store.update(device.id, { ...input, address: 'NEW-PC' }, 3000)
+    assert.equal(moved.lastSeenAt, null)
+    assert.equal(store.recordStatus(device, deviceStatus(device, seen, true)), null)
+    assert.equal(store.get(device.id).lastSeenAt, null)
+    store.recordStatus(moved, deviceStatus(moved, seen, true))
+    const replaced = store.update(device.id, { ...input, address: 'NEW-PC', mac: 'AA:BB:CC:DD:EE:02' }, 4000)
+    assert.equal(replaced.lastSeenAt, null)
+    assert.equal(store.recordStatus(moved, deviceStatus(moved, seen, true)), null)
+    store.delete(device.id)
+    assert.equal(store.recordStatus(replaced, deviceStatus(replaced, seen, true)), null)
+  }
+  finally { store.close() }
 })
 
 test('rolls back a failed migration and keeps its previous version', () => {
@@ -180,12 +260,12 @@ test('does not modify a database from a newer release', () => {
     database.exec(`
       CREATE TABLE sentinel (value TEXT NOT NULL);
       INSERT INTO sentinel VALUES ('preserved');
-      PRAGMA user_version = 5;
+      PRAGMA user_version = 6;
     `)
     database.close()
     assert.throws(() => new DeviceStore(path), /Unsupported database version/)
     const unchanged = new DatabaseSync(path)
-    assert.equal(databaseVersion(unchanged), 5)
+    assert.equal(databaseVersion(unchanged), 6)
     assert.equal(unchanged.prepare('SELECT value FROM sentinel').get()!.value, 'preserved')
     assert.equal(unchanged.prepare('PRAGMA journal_mode').get()!.journal_mode, 'delete')
     unchanged.close()
@@ -208,6 +288,7 @@ test('wake only uses saved MAC, records success and serializes concurrent calls'
     assert.equal(sentMac, input.mac)
     assert.equal(result.message, 'Packet sent')
     assert.ok(result.device.lastSentAt)
+    assert.equal(result.device.lastSeenAt, null)
   }
   finally { store.close() }
 })
@@ -235,7 +316,7 @@ test('a MAC changed during send is not marked as sent', () => {
   finally { store.close() }
 })
 
-test('migrates version 2 to 3 with nullable remote fields', () => {
+test('migrates version 2 to the current schema with nullable remote fields', () => {
   const directory = mkdtempSync(join(tmpdir(), 'homelab-v2-migration-test-'))
   const path = join(directory, 'v2.sqlite')
   let store: DeviceStore | undefined
@@ -247,7 +328,7 @@ test('migrates version 2 to 3 with nullable remote fields', () => {
     store.close()
     store = undefined
     const database = new DatabaseSync(path)
-    assert.equal(databaseVersion(database), 4)
+    assert.equal(databaseVersion(database), 5)
     assert.equal(database.prepare('SELECT lastShutdownAttemptMs FROM devices WHERE id = ?').get('legacy')!.lastShutdownAttemptMs, null)
     database.close()
   }

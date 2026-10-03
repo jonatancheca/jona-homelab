@@ -90,6 +90,7 @@ async function saveDevice() {
       method: editing.value ? 'PATCH' : 'POST', body: { ...form },
     })
     devices.value = [...devices.value.filter(item => item.id !== device.id), device].sort((a, b) => a.name.localeCompare(b.name, 'en'))
+    statuses.value = Object.fromEntries(Object.entries(statuses.value).filter(([id]) => id !== device.id))
     formDialog.value?.close()
     notify(editing.value ? 'Device updated' : 'Device registered')
     void refreshStatuses()
@@ -228,6 +229,7 @@ onUnmounted(() => {
               <div v-if="device.remoteMethod !== 'none' || device.address" class="device-status" :aria-label="`Status: ${statusLabel(device.id)}`">
                 <span class="status-pill" :class="{ online: deviceOnline(device.id), offline: statuses[device.id] && !deviceOnline(device.id) }"><span class="status-dot"></span>{{ statusLabel(device.id) }}</span>
                 <span class="status-pill ssh-status" :class="{ online: statuses[device.id]?.remoteReady }"><AppIcon name="network" />{{ remoteReadyLabel(device.id) }}</span>
+                <p v-if="statuses[device.id] && !deviceOnline(device.id)" class="last-seen">Última vez visto encendido: <time v-if="statuses[device.id]?.lastSeenAt" :datetime="statuses[device.id]?.lastSeenAt || undefined">{{ dateLabel(statuses[device.id]?.lastSeenAt) }}</time><span v-else>Sin registros</span></p>
               </div>
               <p class="mac-label">MAC ADDRESS</p><code class="mac">{{ device.mac }}</code>
               <p v-if="device.remoteMethod === 'none' && device.address" class="remote-target">Ping · {{ device.address }}</p>

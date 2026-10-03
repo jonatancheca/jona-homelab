@@ -47,6 +47,7 @@ input::placeholder { color: #a0a7a2; }
 .device-symbol svg { width: 19px; height: 19px; }
 .device-name { min-width: 0; overflow-wrap: anywhere; font-size: 17px; letter-spacing: -.3px; font-weight: 600; line-height: 1.25; }
 .device-status { display: flex; flex-wrap: wrap; gap: 7px; margin: -8px 0 17px; }
+.last-seen { flex-basis: 100%; margin: 2px 0 0; color: var(--dark-text-muted); font-size: 11px; line-height: 1.6; overflow-wrap: anywhere; }
 .status-pill { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; border: 1px solid #e5e8e6; background: #f7f8f7; color: #7f8982; border-radius: 999px; padding: 5px 8px; font-size: 9px; line-height: 1; }
 .status-pill.online { border-color: #cfe3d4; background: #eef7f0; color: #34704a; }
 .status-pill.offline { border-color: #eadad6; background: #fcf3f1; color: #a1554d; }
