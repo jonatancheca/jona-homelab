@@ -248,6 +248,7 @@ onUnmounted(() => {
         </section>
 
         <aside class="info-banner"><span class="info-symbol"><AppIcon name="info" /></span><div><p>The device must have Wake-on-LAN enabled and be connected via Ethernet. “Packet sent” confirms the packet was sent, not that the device has started.</p></div><span class="lan-label">ON YOUR LOCAL NETWORK</span></aside>
+        <FavoritesPanel />
       </main>
     </div>
 

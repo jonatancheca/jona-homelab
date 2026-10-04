@@ -1,6 +1,9 @@
 <script setup lang="ts">
-defineProps<{ name: 'server' | 'grid' | 'power' | 'plus' | 'edit' | 'trash' | 'shield' | 'arrow' | 'clock' | 'close' | 'search' | 'info' | 'check' | 'refresh' | 'network' }>()
+defineProps<{ name: 'server' | 'grid' | 'power' | 'plus' | 'edit' | 'trash' | 'shield' | 'arrow' | 'clock' | 'close' | 'search' | 'info' | 'check' | 'refresh' | 'network' | 'star' | 'link' | 'external' }>()
 const paths = {
+  star: 'm12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9z',
+  link: 'M10 13a5 5 0 0 0 7 .2l3-3a5 5 0 0 0-7-7l-2 2 M14 11a5 5 0 0 0-7-.2l-3 3a5 5 0 0 0 7 7l2-2',
+  external: 'M14 3h7v7 M10 14 21 3 M10 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5',
   server: 'M4 4h16v6H4z M4 14h16v6H4z M16 7h1 M16 17h1',
   grid: 'M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z',
   power: 'M12 2v10 M6 5a9 9 0 1 0 12 0',

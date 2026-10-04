@@ -38,6 +38,7 @@ Jona Homelab convierte un Ubuntu siempre encendido en el punto de control de los
 
 ## Qué puedes hacer
 
+- **Guardar favoritos:** registra el nombre y la URL HTTP/HTTPS de tus servicios, edita o elimina sus accesos directos y ábrelos en otra pestaña. Se guardan en SQLite y están disponibles desde cualquier navegador del panel.
 - **Despertar tus equipos:** envía Wake-on-LAN desde el navegador, también desde el móvil.
 - **Consultar su estado:** comprueba conectividad y disponibilidad del control remoto; consulta cuándo se vio un equipo encendido por última vez.
 - **Controlar Windows:** apaga, suspende o hiberna mediante Companion, con confirmación antes de ejecutar la acción.

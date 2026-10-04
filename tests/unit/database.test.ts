@@ -100,7 +100,7 @@ test('creates the current schema for a new database', () => {
     const store = new DeviceStore(path)
     store.close()
     const database = new DatabaseSync(path)
-    assert.equal(databaseVersion(database), 5)
+    assert.equal(databaseVersion(database), 6)
     assert.equal(
       database.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?")
         .get('idx_devices_name_nocase')!.name,
@@ -142,7 +142,7 @@ test('migrates version 1 to the current schema without losing devices and is ide
     second = undefined
 
     const database = new DatabaseSync(path)
-    assert.equal(databaseVersion(database), 5)
+    assert.equal(databaseVersion(database), 6)
     assert.equal(
       database.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'index' AND name = ?")
         .get('idx_devices_name_nocase')!.count,
@@ -260,12 +260,12 @@ test('does not modify a database from a newer release', () => {
     database.exec(`
       CREATE TABLE sentinel (value TEXT NOT NULL);
       INSERT INTO sentinel VALUES ('preserved');
-      PRAGMA user_version = 6;
+      PRAGMA user_version = 7;
     `)
     database.close()
     assert.throws(() => new DeviceStore(path), /Unsupported database version/)
     const unchanged = new DatabaseSync(path)
-    assert.equal(databaseVersion(unchanged), 6)
+    assert.equal(databaseVersion(unchanged), 7)
     assert.equal(unchanged.prepare('SELECT value FROM sentinel').get()!.value, 'preserved')
     assert.equal(unchanged.prepare('PRAGMA journal_mode').get()!.journal_mode, 'delete')
     unchanged.close()
@@ -328,7 +328,7 @@ test('migrates version 2 to the current schema with nullable remote fields', () 
     store.close()
     store = undefined
     const database = new DatabaseSync(path)
-    assert.equal(databaseVersion(database), 5)
+    assert.equal(databaseVersion(database), 6)
     assert.equal(database.prepare('SELECT lastShutdownAttemptMs FROM devices WHERE id = ?').get('legacy')!.lastShutdownAttemptMs, null)
     database.close()
   }

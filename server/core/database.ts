@@ -3,6 +3,7 @@ import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import type { Device, DeviceInput, DeviceStatus, RemoteMethod } from '../../shared/types/device.ts'
+import type { Favorite, FavoriteInput } from '../../shared/types/favorite.ts'
 import { companionSecretFromCode } from './validation.ts'
 import { AppError } from './errors.ts'
 
@@ -46,6 +47,19 @@ const DATABASE_MIGRATIONS = [
   {
     version: 5,
     sql: 'ALTER TABLE devices ADD COLUMN lastSeenAt TEXT;',
+  },
+  {
+    version: 6,
+    sql: `
+      CREATE TABLE favorites (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        url TEXT NOT NULL UNIQUE,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL
+      );
+      CREATE INDEX idx_favorites_name_nocase ON favorites(name COLLATE NOCASE, id);
+    `,
   },
 ] as const
 
@@ -254,9 +268,49 @@ export class DeviceStore {
     return row.remoteMethod === 'companion' ? row.companionSecret : null
   }
 
+  listFavorites(): Favorite[] {
+    return this.database.prepare('SELECT * FROM favorites ORDER BY name COLLATE NOCASE, id').all() as unknown as Favorite[]
+  }
+
+  getFavorite(id: string): Favorite {
+    const favorite = this.database.prepare('SELECT * FROM favorites WHERE id = ?').get(id) as unknown as Favorite | undefined
+    if (!favorite) throw new AppError(404, 'Favorito no encontrado.')
+    return favorite
+  }
+
+  createFavorite(input: FavoriteInput, now = Date.now()): Favorite {
+    const id = randomUUID()
+    const timestamp = new Date(now).toISOString()
+    try {
+      this.database.prepare('INSERT INTO favorites (id, name, url, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?)')
+        .run(id, input.name, input.url, timestamp, timestamp)
+    }
+    catch (error) { this.handleWriteError(error) }
+    return this.getFavorite(id)
+  }
+
+  updateFavorite(id: string, input: FavoriteInput, now = Date.now()): Favorite {
+    this.getFavorite(id)
+    try {
+      this.database.prepare('UPDATE favorites SET name = ?, url = ?, updatedAt = ? WHERE id = ?')
+        .run(input.name, input.url, new Date(now).toISOString(), id)
+    }
+    catch (error) { this.handleWriteError(error) }
+    return this.getFavorite(id)
+  }
+
+  deleteFavorite(id: string): void {
+    if (!this.database.prepare('DELETE FROM favorites WHERE id = ?').run(id).changes) {
+      throw new AppError(404, 'Favorito no encontrado.')
+    }
+  }
+
   close(): void { this.database.close() }
 
   private handleWriteError(error: unknown): never {
+    if (error instanceof Error && error.message.includes('UNIQUE constraint failed: favorites.url')) {
+      throw new AppError(409, 'Esta URL ya está guardada en favoritos.')
+    }
     if (error instanceof Error && error.message.includes('UNIQUE constraint failed: devices.mac')) {
       throw new AppError(409, 'A device with that MAC is already registered.')
     }
