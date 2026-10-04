@@ -34,7 +34,7 @@ El icono de servidores identifica el Companion en la bandeja y reaparece si Expl
 
 ## Conectar con la web
 
-1. Abre la bandeja y copia el código `jhcp1_...`.
+1. Abre la bandeja y pulsa **Copy pairing code** para copiar el código `jhcp1_...`, que permanece oculto por defecto. **Show code** permite verlo y **Hide code** vuelve a ocultarlo. Cerrar la ventana o cambiar el código también lo oculta.
 2. En Jona Homelab, edita el dispositivo, selecciona **Companion**, introduce la IPv4 privada o nombre del PC y pega el código.
 3. Guarda y actualiza el estado. Debe aparecer **Companion ready**.
 4. Pulsa **Power options** y elige **Shut down**, **Sleep** o **Hibernate**. Confirma la acción. El apagado seguro permite que aplicaciones bloqueen el apagado; el forzado puede perder trabajo sin guardar.

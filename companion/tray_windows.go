@@ -76,6 +76,7 @@ const (
 	idExit        = 1005
 	idCode        = 1006
 	idDiagnostics = 1007
+	idToggleCode  = 1008
 )
 
 type trayEventKind uint8
@@ -188,6 +189,9 @@ type trayApplication struct {
 	theme          trayTheme
 	status         windows.HWND
 	code           windows.HWND
+	toggleCode     windows.HWND
+	pairingCode    string
+	codeVisible    bool
 	lastCall       windows.HWND
 	details        windows.HWND
 	version        windows.HWND
@@ -335,6 +339,8 @@ func (t *trayApplication) createControls() {
 	procSendMessage.Call(uintptr(t.code), wmSetFont, t.theme.mono, 1)
 	t.copy = t.button("Copy pairing code", 56, 338, 184, 40, idCopy, traySurface)
 	t.rotate = t.button("Rotate code", 252, 338, 138, 40, idRotate, traySurface)
+	t.toggleCode = t.button("Show code", 402, 338, 138, 40, idToggleCode, traySurface)
+	t.setPairingCodeVisible(false)
 	t.label("Keep it private. This code grants control of this PC.", 56, 390, 548, 18, t.theme.small, trayMuted, traySurface)
 
 	t.label("Server activity", 56, 452, 250, 24, t.theme.heading, trayText, traySurface)
@@ -458,6 +464,7 @@ func (t *trayApplication) windowProc(hwnd windows.HWND, message uint32, wParam, 
 		procSetBkColor.Call(wParam, colorRef(style.background))
 		return t.theme.brush(style.background)
 	case wmClose:
+		t.setPairingCodeVisible(false)
 		procShowWindow.Call(uintptr(hwnd), swHide)
 		return 0
 	case wmDestroy:
@@ -482,6 +489,8 @@ func windowProc(hwnd windows.HWND, message uint32, wParam, lParam uintptr) uintp
 
 func (t *trayApplication) command(id int) {
 	switch id {
+	case idToggleCode:
+		t.setPairingCodeVisible(!t.codeVisible)
 	case idCopy:
 		t.startAction("copy")
 	case idRotate:
@@ -669,6 +678,12 @@ func (t *trayApplication) setServiceRetry(enabled bool) {
 }
 
 func (t *trayApplication) updateInfo(info pipeInfo, notifyUpdateFailure bool) {
+	// A replacement code needs a fresh reveal, including after rotation.
+	if info.PairingCode != t.pairingCode {
+		t.codeVisible = false
+	}
+	t.pairingCode = info.PairingCode
+	t.setPairingCodeVisible(t.codeVisible)
 	t.setServiceRetry(false)
 	t.setStatus("Service connected", trayStatusConnected)
 	if info.Update.active() {
@@ -680,7 +695,6 @@ func (t *trayApplication) updateInfo(info pipeInfo, notifyUpdateFailure bool) {
 			t.showDialog(dialogContent{title: "Update failed", body: info.Update.Error, tone: dialogError})
 		}
 	}
-	setWindowText(t.code, info.PairingCode)
 	lastCall := "Last server call: Never"
 	if info.LastServerCall != "" {
 		lastCall = "Last server call: " + formatServerCall(info.LastServerCall)
@@ -695,12 +709,34 @@ func (t *trayApplication) updateInfo(info pipeInfo, notifyUpdateFailure bool) {
 	setWindowText(t.version, t.versionText)
 }
 
+func (t *trayApplication) setPairingCodeVisible(visible bool) {
+	t.codeVisible = visible && t.pairingCode != ""
+	text, button := "Pairing code hidden", "Show code"
+	if t.pairingCode == "" {
+		text = "Waiting for service..."
+	} else if t.codeVisible {
+		text, button = t.pairingCode, "Hide code"
+	}
+	// Hidden codes never enter the edit control's text or accessibility value.
+	setWindowText(t.code, text)
+	setWindowText(t.toggleCode, button)
+	procInvalidateRect.Call(uintptr(t.toggleCode), 0, 0)
+	enabled := uintptr(0)
+	if t.pairingCode != "" {
+		enabled = 1
+	}
+	procEnableWindow.Call(uintptr(t.toggleCode), enabled)
+}
+
 func (t *trayApplication) show() {
 	if t.dialog != 0 {
 		procSetForegroundWindow.Call(uintptr(t.dialog))
 		return
 	}
 	visible, _, _ := user32.NewProc("IsWindowVisible").Call(uintptr(t.hwnd))
+	if visible == 0 {
+		t.setPairingCodeVisible(false)
+	}
 	show := uintptr(swShow)
 	if minimized, _, _ := user32.NewProc("IsIconic").Call(uintptr(t.hwnd)); minimized != 0 {
 		show = swRestore
