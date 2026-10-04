@@ -116,8 +116,19 @@ func TestDiagnosticsArgumentsTreatScriptPathLiterally(t *testing.T) {
 	command := exec.CommandContext(ctx, powershell)
 	command.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CmdLine: syscall.EscapeArg(powershell) + " " + diagnosticsArguments(script)}
 	output, err := command.CombinedOutput()
-	if err != nil || strings.TrimSpace(string(output)) != script {
-		t.Fatalf("script path not preserved: %v; %s", err, output)
+	if err != nil {
+		t.Fatalf("diagnostics script: %v; %s", err, output)
+	}
+	// PowerShell expands short (8.3) paths, including the runner's TEMP path.
+	// Compare file identity while still requiring the literal script to run.
+	want, err := os.Stat(script)
+	if err != nil {
+		t.Fatal(err)
+	}
+	actual := strings.TrimSpace(string(output))
+	got, err := os.Stat(actual)
+	if err != nil || !os.SameFile(want, got) {
+		t.Fatalf("script path not preserved: got %q, want %q: %v", actual, script, err)
 	}
 }
 

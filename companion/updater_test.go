@@ -63,7 +63,12 @@ func TestInstalledReleaseIsInsideReleasesDirectory(t *testing.T) {
 
 func TestFinalDirectoryResolvesInstalledJunction(t *testing.T) {
 	// Reproduce the real installer's junction, without touching an installed service.
-	root := filepath.Join(t.TempDir(), "installation with spaces")
+	// Match the long path returned by Windows when TEMP uses an 8.3 alias.
+	temporary, err := finalDirectory(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(temporary, "installation with spaces")
 	target := filepath.Join(root, "releases", "main-062265854248")
 	if err := os.MkdirAll(target, 0o700); err != nil {
 		t.Fatal(err)
