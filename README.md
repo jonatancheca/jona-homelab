@@ -1,66 +1,93 @@
-# Jona Homelab
+<p align="center">
+  <img src="public/favicon.svg" width="64" height="64" alt="Logo de Jona Homelab">
+</p>
 
-Panel privado en español para registrar ordenadores y enviarles paquetes Wake-on-LAN desde un Ubuntu siempre encendido en su misma subred.
+<h1 align="center">Jona Homelab</h1>
 
-Nuxt 4 + SQLite integrado en Node. Un proceso para la aplicación y otro para `cloudflared`. Sin Docker, ORM, servidor de base de datos, Nginx, PM2 ni ejecutables de Wake-on-LAN. El apagado remoto admite OpenSSH o `Jona Homelab Companion`, un servicio Windows dedicado con bandeja y API LAN firmada.
+<p align="center"><strong>Tu homelab, a un clic.</strong></p>
+<p align="center">Enciende tus equipos y controla su energía desde un panel web privado.</p>
 
-## Requisitos
+<p align="center">
+  <a href="https://github.com/jonatancheca/jona-homelab/releases/latest">Descargar</a> ·
+  <a href="#capturas">Capturas</a> ·
+  <a href="#instalación">Instalación</a> ·
+  <a href="companion/README.md">Guía de Companion</a> ·
+  <a href="#desarrollo">Desarrollo</a>
+</p>
+
+Jona Homelab convierte un Ubuntu siempre encendido en el punto de control de los ordenadores de tu red. Abre el panel desde el móvil o el escritorio, consulta qué equipos responden y despiértalos con Wake-on-LAN. Con **Companion para Windows**, también puedes apagarlos, suspenderlos o hibernarlos.
+
+## Capturas
+
+### Tu red en una sola vista
+
+![Panel web de Jona Homelab con equipos, estado de conexión, versión de Companion y acciones de encendido](docs/images/web-dashboard.png)
+
+<table>
+  <tr>
+    <th>Companion para Windows</th>
+    <th>Opciones de energía en la web</th>
+  </tr>
+  <tr>
+    <td valign="top"><img src="docs/images/companion-windows.png" width="620" alt="Ventana nativa de Companion con emparejado, actividad del servidor, actualizaciones y diagnóstico"></td>
+    <td valign="top"><img src="docs/images/web-power-options.png" width="400" alt="Confirmación de suspensión desde la web, con opciones de apagado, suspensión e hibernación"></td>
+  </tr>
+</table>
+
+*Capturas de la aplicación con datos de demostración. Los nombres, direcciones y el código de emparejado son ficticios. La interfaz conserva sus textos actuales en inglés y español.*
+
+## Qué puedes hacer
+
+- **Despertar tus equipos:** envía Wake-on-LAN desde el navegador, también desde el móvil.
+- **Consultar su estado:** comprueba conectividad y disponibilidad del control remoto; consulta cuándo se vio un equipo encendido por última vez.
+- **Controlar Windows:** apaga, suspende o hiberna mediante Companion, con confirmación antes de ejecutar la acción.
+- **Elegir cómo conectar:** usa Companion, una cuenta SSH restringida o solo Wake-on-LAN, según cada equipo.
+- **Mantener Companion al día:** consulta su versión, solicita actualizaciones desde la web y genera diagnósticos desde su ventana.
+- **Alojarlo en tu propia red:** panel Nuxt, SQLite integrada en Node y acceso remoto mediante Cloudflare Tunnel y Access.
+
+## Cómo funciona
+
+El navegador accede al dominio protegido por Cloudflare Access. Un Tunnel lo conecta con el panel alojado en Ubuntu; ese servidor envía los paquetes Wake-on-LAN y consulta los equipos dentro de su red local.
+
+**El panel web** guarda dispositivos e historial en SQLite. **Companion** es un servicio de Windows 11 x64 con una ventana en la bandeja del sistema: copias su código de emparejado en el panel y queda listo para recibir órdenes autenticadas. El servicio funciona aunque no haya una sesión de Windows iniciada.
+
+| Método por equipo | Encender | Consultar estado | Control de energía |
+| --- | --- | --- | --- |
+| Companion | Wake-on-LAN | Ping y API de Companion | Apagar, suspender e hibernar |
+| SSH | Wake-on-LAN | Ping y autenticación SSH | Apagar |
+| Solo Wake-on-LAN | Wake-on-LAN | Ping, si guardas una dirección | No disponible |
+
+El encendido depende del hardware y de su configuración. Suspensión e hibernación requieren estados compatibles y habilitados en Windows.
+
+<details>
+<summary>Cómo interpretar el estado de los equipos</summary>
+
+**Packet sent** confirma que el sistema operativo aceptó el paquete UDP; no confirma que el equipo haya arrancado. **Online** indica una respuesta positiva de ping, SSH o Companion. **No response** no demuestra que esté apagado.
+
+El dato **Última vez visto encendido** se conserva en SQLite y se actualiza al comprobar el estado: cada 30 segundos mientras el panel está abierto o al refrescar manualmente. No es una monitorización continua en segundo plano. Enviar Wake-on-LAN no actualiza ese dato; cambiar la MAC o la dirección lo reinicia. Si nunca hubo una respuesta positiva, aparece **Sin registros**.
+
+</details>
+
+## Instalación
+
+1. **Instala el panel en Ubuntu** con el paquete de la [última release](https://github.com/jonatancheca/jona-homelab/releases/latest).
+2. **Configura el dominio, Tunnel y Access** para acceder al panel de forma privada.
+3. **Añade tus equipos** con nombre y MAC. Para controlar Windows, instala Companion y pega su código de emparejado; también puedes elegir SSH o solo Wake-on-LAN.
+
+Una instalación desde los paquetes publicados no necesita pnpm ni herramientas de compilación. El panel usa Node y SQLite; Companion es un ejecutable Go autocontenido, sin .NET. No se necesitan Docker, un servidor de base de datos independiente, Nginx ni PM2.
+
+### Requisitos
 
 - Ubuntu 26.04, Node **24 LTS ≥24.15**, `openssh-client`, `iputils-ping` y acceso a Internet para Cloudflare.
-- Node incluye `node:sqlite`; esa API sigue siendo *release candidate*. El proyecto fija la línea 24 y el lockfile; las actualizaciones deben pasar los tests.
 - Equipos en la misma subred IPv4, conectados por Ethernet, con alimentación y Wake-on-LAN habilitado en BIOS/UEFI y en el sistema operativo. Algunos equipos no despiertan desde apagado completo; revisa las opciones de ahorro de energía e inicio rápido del fabricante.
 - Un dominio gestionado por Cloudflare, una aplicación Access y un Tunnel. No hay acceso directo por IP desde la LAN: usa el dominio protegido también desde casa.
 
-«Paquete enviado» significa que el sistema operativo aceptó el datagrama UDP. **No confirma entrega ni arranque.** «Online» significa que responde ICMP o acepta la autenticación SSH configurada; «No responde» no demuestra que esté apagado.
+<details>
+<summary><strong>Instalar el panel en Ubuntu, paso a paso</strong></summary>
 
-Cuando un equipo deja de responder, la tarjeta muestra «Última vez visto encendido» con la fecha y hora de la última respuesta positiva de ping, SSH o Companion. Si nunca se ha observado encendido, muestra «Sin registros». El historial se guarda en SQLite y se conserva al recargar o reiniciar; enviar Wake-on-LAN no lo actualiza. Se registra durante las comprobaciones del panel (cada 30 segundos mientras está abierto y al refrescar manualmente), no mediante monitorización continua en segundo plano. Cambiar la MAC o la dirección reinicia este dato para evitar atribuir el historial a otro equipo. «No response» sigue sin confirmar que el equipo esté apagado.
-
-## Desarrollo
-
-Con Node 24 LTS y pnpm 11.2.0:
-
-```sh
-pnpm install --frozen-lockfile
-cp .env.example .env
-pnpm dev
-```
-
-Abre <http://127.0.0.1:3000>. En PowerShell, usa `Copy-Item .env.example .env` en lugar de `cp` si lo prefieres. No sobrescribas un `.env` existente sin revisarlo.
-
-Durante el desarrollo, el servidor escucha en `127.0.0.1:3000` por defecto. No uses un servidor de desarrollo como origen de un Tunnel.
-
-**El botón Encender en desarrollo envía paquetes reales según `.env`.** Para pruebas sin tocar tu LAN, configura `WOL_BROADCAST=127.0.0.1` y `WOL_SOURCE_IP=127.0.0.1`, o ejecuta los tests aislados.
-
-## Validación
-
-```sh
-pnpm test
-pnpm lint
-pnpm typecheck
-pnpm build
-pnpm exec playwright install chromium
-pnpm test:e2e
-pnpm test:production
-```
-
-Los tests unitarios verifican MAC, CRUD, migraciones, estados, comandos SSH, errores y límites. Los E2E levantan una instancia aislada en loopback, con una SQLite temporal, y mandan UDP exclusivamente a loopback. No ejecutan apagados reales. El test de producción arranca el resultado compilado y comprueba el acceso local detrás del Tunnel y el rechazo del bypass. Playwright y las herramientas de desarrollo **no se despliegan** al Ubuntu de producción.
-
-Detén `pnpm dev` antes de ejecutar los E2E: Nuxt no admite dos servidores de desarrollo simultáneos sobre este mismo proyecto. Los tests usan los puertos 3123 (E2E) y 3124 (producción), que deben estar libres.
-
-## Instalación en Ubuntu
-
-### 1. Preparar Node y el artefacto
+### 1. Preparar Node y elegir el paquete
 
 Instala Node 24 LTS desde la [distribución oficial de Node](https://nodejs.org/en/download). Comprueba `node --version` y `command -v node`. La unidad incluida usa `/usr/bin/node`; si la ruta difiere, sustituye **solo `ExecStart`** por la ruta absoluta del binario de Node del sistema. Evita instalaciones bajo el directorio personal: el servicio no tiene acceso a `/home`.
-
-En el equipo de compilación, instala con el lockfile y ejecuta las validaciones. Para una entrega Ubuntu reproducible, compila en Linux con la misma arquitectura que el destino (Ubuntu/WSL o CI Linux); no copies `node_modules` de Windows.
-
-```sh
-pnpm install --frozen-lockfile
-pnpm build
-mkdir -p artifacts
-tar -czf artifacts/jona-homelab.tar.gz -C .output .
-```
 
 Cada commit que llega a `main` genera además una release oficial `main-<sha>` desde GitHub Actions. La release contiene:
 
@@ -70,7 +97,7 @@ Cada commit que llega a `main` genera además una release oficial `main-<sha>` d
 - `jona-homelab-companion-win-x64.zip`: servicio y bandeja Windows 11 x64 auto-contenidos.
 - `jona-homelab-companion-win-x64.zip.sha256`: checksum del paquete Windows.
 
-La release se compila en Linux y no incluye Node. No hacen falta fuentes, pnpm ni herramientas de compilación en producción.
+El paquete para Ubuntu se compila en Linux y no incluye Node. No hacen falta fuentes, pnpm ni herramientas de compilación en producción.
 
 ### 2. Usuario, archivos y configuración
 
@@ -127,15 +154,20 @@ La salud debe responder 200 y la consulta directa de equipos, 200 cuando se real
 
 El servicio funciona sin root, sin capacidades especiales y con el sistema de archivos de solo lectura salvo su estado y directorio temporal. No actives `PrivateNetwork=true`: impediría alcanzar la LAN. No actives `MemoryDenyWriteExecute=true`: impediría el JIT de Node.
 
-## Configurar estado y apagado de Windows
+</details>
+
+<details>
+<summary><strong>Configurar Companion, SSH o solo Wake-on-LAN</strong></summary>
 
 ### Opción recomendada: Jona Homelab Companion
 
 Descarga `jona-homelab-companion-win-x64.zip` y su `.sha256` desde la misma release. Verifica el checksum, extrae el ZIP y ejecuta `install.ps1` como administrador. El instalador crea el servicio automático, la tarea de bandeja, el firewall del perfil privado (TCP 47654) y el estado protegido en `C:\ProgramData\JonaHomelabCompanion`.
 
-El instalador comprueba la API antes de confirmar éxito. Para investigar problemas, pulsa **Generate diagnostics** en la bandeja o ejecuta `diagnostics.ps1` desde el paquete: genera un ZIP en la subcarpeta `diagnostics` junto a la app con trazas rotativas, estado, firewall y eventos, sin incluir el código de emparejado ni `config.json`. Consulta [la guía del Companion](companion/README.md) para instalar, probar y compartir el diagnóstico. Las compilaciones locales se generan con `companion/package.ps1` y no se actualizan automáticamente.
+El instalador comprueba la API antes de confirmar éxito. Para investigar problemas, pulsa **Generate diagnostics** en la bandeja o ejecuta `diagnostics.ps1` desde el paquete: genera un ZIP en la subcarpeta `diagnostics` junto a la app con trazas rotativas, estado, firewall y eventos, sin incluir el código de emparejado ni `config.json`. Consulta [la guía del Companion](companion/README.md) para instalar, probar y compartir el diagnóstico.
 
 Abre la bandeja, copia el código `jhcp1_...` y edita el equipo en el panel: selecciona `Companion`, pega el código y guarda. El código no aparece en `GET /api/devices`; para cambiarlo, rota el código en la bandeja y vuelve a pegarlo. La API firma solicitudes y respuestas con HMAC, rechaza nonces repetidos y solo acepta clientes IPv4 privados.
+
+Además del apagado, Companion permite suspender e hibernar cuando Windows admite esos estados; SSH conserva solo el apagado.
 
 El servicio Go comprueba releases al arrancar y cada 24 horas. Descarga el ZIP por HTTPS, valida versión, checksum, rutas y archivos requeridos, y hace rollback automático si la versión nueva no supera `/health`. La bandeja muestra el código de emparejado y la última llamada autenticada del servidor; usa `Start-ScheduledTask -TaskName JonaHomelabCompanionTray` para relanzarla sin dejar una consola abierta. Desinstala con `uninstall.ps1`; la configuración queda preservada salvo usar `-PurgeData`. El paquete no tiene firma Authenticode y SmartScreen puede mostrar un aviso.
 
@@ -174,7 +206,12 @@ La última orden debe responder `ready`. Repite la prueba para cada IP. Configur
 
 Si un PC no tiene Companion ni SSH, selecciona `Wake-on-LAN only` al registrarlo. Solo necesita nombre y MAC; la dirección es opcional. Si guardas una IPv4 privada o nombre de máquina, el panel puede comprobar el ping, pero no habilita apagado remoto. Sin dirección, el equipo sigue disponible para enviarle paquetes Wake-on-LAN, sin comprobación de estado de red.
 
+</details>
+
 ## Actualizaciones y rollback
+
+<details>
+<summary><strong>Actualizar el panel y recuperar una versión anterior</strong></summary>
 
 Ejecuta actualizador incluido en release activa:
 
@@ -200,7 +237,12 @@ Si nueva versión no arranca o no supera health check, actualizador detiene inte
 
 Para rollback manual, detén servicio, aparta primero directorio de datos actual completo, restaura backup compatible, apunta `current` a release anterior y arranca. No ejecutes versión antigua sobre esquema nuevo. Esta versión rechaza esquemas desconocidos y no los degrada.
 
+</details>
+
 ## Copia y restauración
+
+<details>
+<summary><strong>Crear y restaurar una copia consistente</strong></summary>
 
 La base usa WAL. No copies solo el archivo principal mientras el servicio está activo. Para una copia sencilla y consistente, detén primero la aplicación:
 
@@ -216,7 +258,94 @@ Usa un nombre de copia nuevo cada vez y guarda también `/etc/jona-homelab.env` 
 
 Para restaurar, detén la aplicación. **Aparta primero el directorio de datos actual completo** a una ubicación privada de recuperación; no mezcles una base restaurada con archivos WAL antiguos. Extrae la copia en `/var/lib`, asigna propietario `jona-homelab:jona-homelab` al directorio restaurado, permisos 0700 al directorio y 0600 a sus archivos. Arranca y comprueba los equipos. Conserva los datos apartados hasta confirmar la restauración.
 
-## API
+</details>
+
+## Desarrollo
+
+Esta sección reúne el entorno local, las pruebas, la compilación y la API. Para usar la aplicación con las releases publicadas, sigue [Instalación](#instalación).
+
+### Entorno local
+
+Con Node **24 LTS ≥24.15** y pnpm **11.2.0**:
+
+```sh
+pnpm install --frozen-lockfile
+cp .env.example .env
+pnpm dev
+```
+
+Abre <http://127.0.0.1:3000>. En PowerShell, usa `Copy-Item .env.example .env` en lugar de `cp` si lo prefieres. No sobrescribas un `.env` existente sin revisarlo.
+
+Durante el desarrollo, el servidor escucha en `127.0.0.1:3000` por defecto. No uses un servidor de desarrollo como origen de un Tunnel.
+
+**El botón Encender en desarrollo envía paquetes reales según `.env`.** Para pruebas sin tocar tu LAN, configura `WOL_BROADCAST=127.0.0.1` y `WOL_SOURCE_IP=127.0.0.1`, o ejecuta los tests aislados.
+
+SQLite usa `node:sqlite`; las actualizaciones de Node deben pasar las pruebas del proyecto. Si ya hay un servidor en el puerto 3000, reutilízalo.
+
+### Pruebas y validación
+
+Comprobaciones habituales:
+
+```sh
+pnpm test
+pnpm lint
+pnpm typecheck
+```
+
+Pruebas de navegador, con Chromium instalado:
+
+```sh
+pnpm exec playwright install chromium
+pnpm test:e2e
+```
+
+Los tests unitarios verifican MAC, CRUD, migraciones, estados, comandos SSH, errores y límites. Los E2E levantan una instancia aislada en loopback, con una SQLite temporal, y mandan UDP exclusivamente a loopback. No ejecutan apagados reales. Playwright y las herramientas de desarrollo **no se despliegan** al Ubuntu de producción.
+
+Detén `pnpm dev` antes de ejecutar los E2E: Nuxt no admite dos servidores de desarrollo simultáneos sobre este mismo proyecto. Los tests usan los puertos 3123 (E2E) y 3124 (producción), que deben estar libres.
+
+### Compilar y validar producción
+
+La compilación se ejecuta cuando se quiere preparar o comprobar un artefacto de producción; no es necesaria para arrancar el entorno local.
+
+```sh
+pnpm build
+pnpm test:production
+```
+
+El test de producción arranca el resultado compilado y comprueba el acceso local detrás del Tunnel y el rechazo del bypass.
+
+<details>
+<summary><strong>Crear un artefacto Ubuntu local</strong></summary>
+
+En el equipo de compilación, instala con el lockfile y ejecuta las validaciones. Para una entrega Ubuntu reproducible, compila en Linux con la misma arquitectura que el destino (Ubuntu/WSL o CI Linux); no copies `node_modules` de Windows.
+
+```sh
+pnpm install --frozen-lockfile
+pnpm build
+mkdir -p artifacts
+tar -czf artifacts/jona-homelab.tar.gz -C .output .
+```
+
+Este archivo contiene solo `.output`. Para una instalación con actualizador y archivos de despliegue, usa el paquete oficial de GitHub Releases.
+
+</details>
+
+### Desarrollar Companion
+
+Con Go instalado, genera el ZIP Windows y su SHA256 sin compilar la web:
+
+```powershell
+.\companion\package.ps1
+```
+
+Los archivos quedan en `artifacts/`. Las compilaciones `local-...` se instalan manualmente y no se actualizan automáticamente. Consulta la [guía de Companion](companion/README.md#pruebas-sin-apagar-el-pc) para probarlo con apagado, suspensión e hibernación simulados, sin instalar el servicio ni modificar el firewall.
+
+La versión visible procede de `companion/VERSION`. Cada nuevo commit incrementa el contador (`1.00`, `1.01`, …, `1.99`, `1.100`); `main-<commit>` sigue siendo el identificador de los paquetes para actualizar y restaurar.
+
+### API
+
+<details>
+<summary><strong>Rutas, contratos y errores</strong></summary>
 
 Cloudflare Access debe proteger todas las rutas de negocio. El backend no valida JWT ni cabeceras de origen; las mutaciones requieren `Content-Type: application/json` y un JSON de hasta 4096 bytes. No se habilita CORS. Para `DELETE` y `wake`, envía `{}`.
 
@@ -227,15 +356,18 @@ Cloudflare Access debe proteger todas las rutas de negocio. El backend no valida
 | `PATCH /api/devices/:id` | Campos completos; código Companion vacío conserva el existente; 200 |
 | `DELETE /api/devices/:id` | `{}`; 204 |
 | `POST /api/devices/:id/wake` | `{}`; mensaje de envío, equipo y `retryAfter` |
-| `GET /api/devices/status` | `networkReachable`, `remoteReady`, `remoteMethod` y `checkedAt` por equipo |
+| `GET /api/devices/status` | `networkReachable`, `remoteReady`, `remoteMethod`, `checkedAt`, `lastSeenAt` y estado de Companion por equipo |
+| `POST /api/devices/:id/update` | `{}`; solicita actualizar Companion a la release publicada compatible |
 | `POST /api/devices/:id/shutdown` | `{ "force": false }`; aceptación y `retryAfter` |
 | `POST /api/devices/:id/power` | `{ "action": "shutdown"/"sleep"/"hibernate", "force": false }`; suspensión e hibernación requieren Companion actualizado, comparten cooldown con apagado |
 | `GET /api/session` | Modo `development` o `access`, sin datos de identidad |
 | `GET /api/health` | Salud mínima, sin datos privados |
 
-Los equipos contienen `id`, `name`, `mac`, `address`, `sshUser`, `remoteMethod`, `companionConfigured`, `createdAt`, `updatedAt` y `lastSentAt` (ISO UTC o `null`). `remoteMethod: "none"` significa solo Wake-on-LAN: no ejecuta SSH ni Companion y rechaza apagado remoto. El secreto Companion nunca se serializa. Filas anteriores conservan método SSH hasta editarlas. Los errores usan 400/413/415 para entrada inválida, 404 para equipo inexistente, 409 para conflictos, 429 para enfriamiento, 502 para fallo remoto y 503 cuando el transporte no está configurado. Los 429 incluyen `Retry-After`. Cooldowns de encendido y apagado persisten en SQLite. No hay reintentos automáticos.
+Los equipos contienen `id`, `name`, `mac`, `address`, `sshUser`, `remoteMethod`, `companionConfigured`, `createdAt`, `updatedAt`, `lastSentAt` y `lastSeenAt` (ISO UTC o `null`). `remoteMethod: "none"` significa solo Wake-on-LAN: no ejecuta SSH ni Companion y rechaza apagado remoto. El secreto Companion nunca se serializa. Filas anteriores conservan método SSH hasta editarlas. Los errores usan 400/413/415 para entrada inválida, 404 para equipo inexistente, 409 para conflictos, 429 para enfriamiento, 502 para fallo remoto y 503 cuando el transporte no está configurado. Los 429 incluyen `Retry-After`. Cooldowns de encendido y apagado persisten en SQLite. No hay reintentos automáticos.
 
-## Fuentes técnicas
+</details>
+
+### Fuentes técnicas
 
 - [Despliegue Nuxt en Node](https://nuxt.com/docs/4.x/getting-started/deployment).
 - [SQLite integrado, Node 24.15](https://nodejs.org/en/blog/release/v24.15.0).
