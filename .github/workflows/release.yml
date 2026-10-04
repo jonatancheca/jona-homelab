@@ -130,9 +130,9 @@ jobs:
           Push-Location companion
           go build -trimpath -ldflags '-s -w -H=windowsgui' -o (Join-Path $packageRoot 'JonaHomelab.Companion.exe') .
           Pop-Location
-          Copy-Item companion/install.ps1, companion/uninstall.ps1, companion/diagnostics.ps1, companion/README.md -Destination $packageRoot
+          Copy-Item companion/install.ps1, companion/uninstall.ps1, companion/diagnostics.ps1, companion/tray-task.ps1, companion/README.md -Destination $packageRoot
           Set-Content -LiteralPath (Join-Path $packageRoot 'RELEASE_VERSION') -Value $version -NoNewline
-          foreach ($required in @('JonaHomelab.Companion.exe', 'install.ps1', 'uninstall.ps1', 'diagnostics.ps1', 'README.md', 'RELEASE_VERSION')) {
+          foreach ($required in @('JonaHomelab.Companion.exe', 'install.ps1', 'uninstall.ps1', 'diagnostics.ps1', 'tray-task.ps1', 'README.md', 'RELEASE_VERSION')) {
             if (-not (Test-Path -LiteralPath (Join-Path $packageRoot $required))) { throw "Missing Companion package file: $required" }
           }
           $zip = Join-Path $env:GITHUB_WORKSPACE 'artifacts\jona-homelab-companion-win-x64.zip'
@@ -140,7 +140,7 @@ jobs:
           $archive = [System.IO.Compression.ZipFile]::OpenRead($zip)
           try {
             $entries = $archive.Entries.FullName
-            foreach ($required in @('JonaHomelab.Companion.exe', 'install.ps1', 'uninstall.ps1', 'diagnostics.ps1', 'README.md', 'RELEASE_VERSION')) {
+            foreach ($required in @('JonaHomelab.Companion.exe', 'install.ps1', 'uninstall.ps1', 'diagnostics.ps1', 'tray-task.ps1', 'README.md', 'RELEASE_VERSION')) {
               if ($entries -notcontains $required) { throw "Missing Companion ZIP entry: $required" }
             }
           } finally { $archive.Dispose() }

@@ -40,6 +40,7 @@ func (companionService) Execute(_ []string, requests <-chan svc.ChangeRequest, s
 	serverErrors := make(chan error, 1)
 	go func() { serverErrors <- runHTTP(ctx, state, listener) }()
 	go runPipeServer(ctx, state)
+	go refreshInstalledTrayTask(ctx)
 	go runUpdateLoop(ctx, state.updates)
 	statuses <- svc.Status{State: svc.Running, Accepts: svc.AcceptStop | svc.AcceptShutdown}
 	logEvent("service.running", map[string]any{"port": companionPort, "version": releaseVersion()})

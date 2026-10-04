@@ -88,10 +88,7 @@ if (-not $healthy) { throw 'El servicio no supera la comprobacion HTTP. Consulta
 if (-not $SkipTray) {
 try {
 $trayTaskName = 'JonaHomelabCompanionTray'
-$trayAction = New-ScheduledTaskAction -Execute $servicePath -Argument '--tray'
-$trayTrigger = New-ScheduledTaskTrigger -AtLogOn
-$trayPrincipal = New-ScheduledTaskPrincipal -GroupId 'S-1-5-4' -RunLevel Limited
-Register-ScheduledTask -TaskName $trayTaskName -Action $trayAction -Trigger $trayTrigger -Principal $trayPrincipal -Force | Out-Null
+& (Join-Path $current 'tray-task.ps1') -ExecutablePath $servicePath
 Start-ScheduledTask -TaskName $trayTaskName
 } catch { Write-Warning "Servicio listo, pero la bandeja no arranco: $($_.Exception.Message)" }
 }

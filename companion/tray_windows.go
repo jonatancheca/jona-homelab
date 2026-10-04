@@ -17,7 +17,6 @@ import (
 )
 
 const (
-	windowClassName  = "JonaHomelabCompanionTrayWindow"
 	wmCreate         = 0x0001
 	wmDestroy        = 0x0002
 	wmClose          = 0x0010
@@ -27,6 +26,9 @@ const (
 	wmCtlColorStatic = 0x0138
 	wmAppResult      = 0x8001
 	wmTrayMessage    = 0x8002
+	wmShowCompanion  = 0x8003
+	wmTimer          = 0x0113
+	trayIconTimer    = 1
 	wmNull           = 0x0000
 	wmLButtonDown    = 0x0201
 	wmLButtonDblClk  = 0x0203
@@ -48,8 +50,9 @@ const (
 	esReadOnly    = 0x0800
 	esAutoHScroll = 0x0080
 
-	swHide = 0
-	swShow = 5
+	swHide    = 0
+	swShow    = 5
+	swRestore = 9
 
 	mbOK        = 0x00000000
 	mbIconError = 0x00000010
@@ -94,6 +97,8 @@ const (
 )
 
 var (
+	windowClassName         = "JonaHomelabCompanionTrayWindow"
+	trayMutexName           = `Local\JonaHomelabCompanionTray`
 	user32                  = windows.NewLazySystemDLL("user32.dll")
 	shell32                 = windows.NewLazySystemDLL("shell32.dll")
 	kernel32                = windows.NewLazySystemDLL("kernel32.dll")
@@ -213,31 +218,61 @@ type trayApplication struct {
 	updateOnOpen   bool
 	versionText    string
 	request        func(string) ([]byte, error)
+	iconRetry      bool
 }
 
-func runTray() error {
+func runTray(showWindow bool) error {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 	// Windows handles scaling when the window moves to a different monitor.
 	previousDPI, _, _ := procSetThreadDpiAwarenessContext.Call(^uintptr(1))
 	defer procSetThreadDpiAwarenessContext.Call(previousDPI)
-	mutexName, _ := windows.UTF16PtrFromString(`Global\JonaHomelabCompanionTray`)
+	// Each interactive session needs its own icon (including fast user switching).
+	mutexName, _ := windows.UTF16PtrFromString(trayMutexName)
 	mutex, mutexErr := windows.CreateMutex(nil, false, mutexName)
+	if mutex != 0 {
+		defer windows.CloseHandle(mutex)
+	}
 	if mutexErr == windows.ERROR_ALREADY_EXISTS {
+		if showWindow {
+			return showExistingTray()
+		}
 		return nil
 	}
 	if mutexErr != nil {
 		return fmt.Errorf("create tray mutex: %w", mutexErr)
 	}
-	defer windows.CloseHandle(mutex)
 	tray := &trayApplication{}
 	activeTray = tray
 	defer func() { tray.close(); activeTray = nil }()
 	if err := tray.create(); err != nil {
 		return err
 	}
-	tray.refreshInfo()
+	if showWindow {
+		tray.show()
+	} else {
+		tray.refreshInfo()
+	}
 	return tray.messageLoop()
+}
+
+func showExistingTray() error {
+	// A concurrent logon launch may own the mutex before creating its window.
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		hwnd, _, _ := user32.NewProc("FindWindowW").Call(uintptr(unsafe.Pointer(utf16(windowClassName))), 0)
+		if hwnd != 0 {
+			var pid uint32
+			user32.NewProc("GetWindowThreadProcessId").Call(hwnd, uintptr(unsafe.Pointer(&pid)))
+			user32.NewProc("AllowSetForegroundWindow").Call(uintptr(pid))
+			if ok, _, err := procPostMessage.Call(hwnd, wmShowCompanion, 0, 0); ok == 0 {
+				return fmt.Errorf("show existing Companion window: %w", err)
+			}
+			return nil
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	return errors.New("Companion is already starting but its window is not available. Try again in a moment.")
 }
 
 var activeTray *trayApplication
@@ -286,11 +321,7 @@ func (t *trayApplication) create() error {
 	t.createControls()
 	taskbarCreated, _, _ := procRegisterWindowMessage.Call(uintptr(unsafe.Pointer(utf16("TaskbarCreated"))))
 	t.taskbarCreated = uint32(taskbarCreated)
-	if err := t.addIcon(); err != nil {
-		// Explorer may still be starting at logon; TaskbarCreated retries it.
-		logEvent("tray.icon_failed", map[string]any{"error": err.Error()})
-		t.show()
-	}
+	t.ensureIcon()
 	return nil
 }
 
@@ -341,16 +372,35 @@ func (t *trayApplication) addIcon() error {
 	t.icon = notifyIconData{Size: uint32(unsafe.Sizeof(notifyIconData{})), Window: t.hwnd, ID: 1, Flags: nifMessage | nifIcon | nifTip | 0x80, Callback: wmTrayMessage, Icon: t.icons.small}
 	tip, _ := windows.UTF16FromString(displayName)
 	copy(t.icon.Tip[:], tip)
-	if ok, _, err := procShellNotifyIcon.Call(nimAdd, uintptr(unsafe.Pointer(&t.icon))); ok == 0 {
+	if ok, err := notifyTrayIcon(nimAdd, &t.icon); ok == 0 {
 		return fmt.Errorf("add Companion tray icon: %w", err)
 	}
 	t.icon.Timeout = notifyIconVersion4
-	procShellNotifyIcon.Call(nimSetVersion, uintptr(unsafe.Pointer(&t.icon)))
+	notifyTrayIcon(nimSetVersion, &t.icon)
 	return nil
 }
 
 func (t *trayApplication) removeIcon() {
-	procShellNotifyIcon.Call(nimDelete, uintptr(unsafe.Pointer(&t.icon)))
+	notifyTrayIcon(nimDelete, &t.icon)
+}
+
+var notifyTrayIcon = func(message uintptr, icon *notifyIconData) (uintptr, error) {
+	ok, _, err := procShellNotifyIcon.Call(message, uintptr(unsafe.Pointer(icon)))
+	return ok, err
+}
+
+func (t *trayApplication) ensureIcon() {
+	if err := t.addIcon(); err != nil {
+		if !t.iconRetry {
+			logEvent("tray.icon_failed", map[string]any{"error": err.Error()})
+			// Explorer may broadcast TaskbarCreated before its tray is ready.
+			timer, _, _ := user32.NewProc("SetTimer").Call(uintptr(t.hwnd), trayIconTimer, 2000, 0)
+			t.iconRetry = timer != 0
+		}
+		return
+	}
+	user32.NewProc("KillTimer").Call(uintptr(t.hwnd), trayIconTimer)
+	t.iconRetry = false
 }
 
 func (t *trayApplication) messageLoop() error {
@@ -373,12 +423,18 @@ func (t *trayApplication) messageLoop() error {
 
 func (t *trayApplication) windowProc(hwnd windows.HWND, message uint32, wParam, lParam uintptr) uintptr {
 	if message == t.taskbarCreated && t.taskbarCreated != 0 {
-		if err := t.addIcon(); err != nil {
-			logEvent("tray.icon_failed", map[string]any{"error": err.Error()})
-		}
+		t.ensureIcon()
 		return 0
 	}
 	switch message {
+	case wmShowCompanion:
+		t.show()
+		return 0
+	case wmTimer:
+		if wParam == trayIconTimer {
+			t.ensureIcon()
+		}
+		return 0
 	case wmCreate:
 		return 0
 	case wmCommand:
@@ -419,6 +475,7 @@ func (t *trayApplication) windowProc(hwnd windows.HWND, message uint32, wParam, 
 		procShowWindow.Call(uintptr(hwnd), swHide)
 		return 0
 	case wmDestroy:
+		user32.NewProc("KillTimer").Call(uintptr(hwnd), trayIconTimer)
 		t.removeIcon()
 		t.hwnd = 0
 		procPostQuitMessage.Call(0)
@@ -636,7 +693,11 @@ func (t *trayApplication) show() {
 		return
 	}
 	visible, _, _ := user32.NewProc("IsWindowVisible").Call(uintptr(t.hwnd))
-	procShowWindow.Call(uintptr(t.hwnd), swShow)
+	show := uintptr(swShow)
+	if minimized, _, _ := user32.NewProc("IsIconic").Call(uintptr(t.hwnd)); minimized != 0 {
+		show = swRestore
+	}
+	procShowWindow.Call(uintptr(t.hwnd), show)
 	procSetForegroundWindow.Call(uintptr(t.hwnd))
 	procUpdateWindow.Call(uintptr(t.hwnd))
 	if visible == 0 {

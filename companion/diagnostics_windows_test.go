@@ -88,7 +88,7 @@ func TestDiagnosticsExportsBesideScriptAndHonorsExplicitDestination(t *testing.T
 			if !strings.Contains(entries["service.log.txt"], "test-service-event") {
 				t.Fatal("service log missing from archive")
 			}
-			for _, name := range []string{"LEEME.txt", "service.txt", "health.txt", "configuration-summary.txt", "power-states.txt", "windows-events.txt", "firewall.txt", "network.txt"} {
+			for _, name := range []string{"LEEME.txt", "service.txt", "health.txt", "configuration-summary.txt", "power-states.txt", "windows-events.txt", "firewall.txt", "network.txt", "tray-task.txt", "tray-processes.txt", "tray-events.txt"} {
 				if _, found := entries[name]; !found {
 					t.Errorf("missing section %s", name)
 				}
@@ -163,7 +163,7 @@ func TestDiagnosticsNativeLauncherWaitsForProcessResult(t *testing.T) {
 func TestCompanionPackageRequiresDiagnostics(t *testing.T) {
 	directory := t.TempDir()
 	version := "main-0123456789ab"
-	for _, name := range []string{"JonaHomelab.Companion.exe", "install.ps1", "uninstall.ps1", "README.md", "RELEASE_VERSION"} {
+	for _, name := range []string{"JonaHomelab.Companion.exe", "install.ps1", "uninstall.ps1", "tray-task.ps1", "README.md", "RELEASE_VERSION"} {
 		if err := os.WriteFile(filepath.Join(directory, name), []byte(version), 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -176,5 +176,11 @@ func TestCompanionPackageRequiresDiagnostics(t *testing.T) {
 	}
 	if err := validatePackage(directory, version); err != nil {
 		t.Fatalf("complete package rejected: %v", err)
+	}
+	if err := os.Remove(filepath.Join(directory, "tray-task.ps1")); err != nil {
+		t.Fatal(err)
+	}
+	if err := validatePackage(directory, version); err == nil {
+		t.Fatal("an update without tray task repair must be rejected")
 	}
 }

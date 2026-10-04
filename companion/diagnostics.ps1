@@ -21,6 +21,24 @@ Save-Section 'service' {
   & sc.exe queryex JonaHomelabCompanion
 }
 Save-Section 'health' { Invoke-RestMethod 'http://127.0.0.1:47654/health' -TimeoutSec 3 | ConvertTo-Json }
+Save-Section 'tray-task' {
+  $task = Get-ScheduledTask -TaskName 'JonaHomelabCompanionTray' -ErrorAction Stop
+  $task | Select-Object TaskName, State
+  $task.Actions | Select-Object Execute, Arguments, WorkingDirectory | Format-List
+  $task.Principal | Select-Object UserId, GroupId, LogonType, RunLevel | Format-List
+  $task.Triggers | Select-Object Enabled, UserId, Delay | Format-List
+  $task.Settings | Select-Object DisallowStartIfOnBatteries, StopIfGoingOnBatteries, ExecutionTimeLimit, StartWhenAvailable, RestartCount, RestartInterval, MultipleInstances | Format-List
+  Get-ScheduledTaskInfo -TaskName $task.TaskName | Select-Object LastRunTime, LastTaskResult, NumberOfMissedRuns | Format-List
+}
+Save-Section 'tray-processes' {
+  Get-CimInstance Win32_Process -Filter "Name='JonaHomelab.Companion.exe' OR Name='explorer.exe'" |
+    Select-Object Name, ProcessId, ParentProcessId, SessionId, ExecutablePath
+}
+Save-Section 'tray-events' {
+  Get-WinEvent -FilterHashtable @{ LogName = 'Microsoft-Windows-TaskScheduler/Operational'; StartTime = (Get-Date).AddDays(-3) } -MaxEvents 3000 -ErrorAction Stop |
+    Where-Object { $_.Message -like '*JonaHomelabCompanionTray*' } |
+    Select-Object -First 50 TimeCreated, Id, LevelDisplayName, Message
+}
 Save-Section 'power-states' { & powercfg.exe /a }
 Save-Section 'network' {
   Get-NetConnectionProfile | Select-Object InterfaceAlias, NetworkCategory, IPv4Connectivity

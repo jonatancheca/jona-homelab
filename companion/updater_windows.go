@@ -460,7 +460,7 @@ func extractArchive(archivePath, destination string) error {
 }
 
 func validatePackage(root, version string) error {
-	for _, name := range []string{"JonaHomelab.Companion.exe", "install.ps1", "uninstall.ps1", "diagnostics.ps1", "README.md", "RELEASE_VERSION"} {
+	for _, name := range []string{"JonaHomelab.Companion.exe", "install.ps1", "uninstall.ps1", "diagnostics.ps1", "tray-task.ps1", "README.md", "RELEASE_VERSION"} {
 		if info, err := os.Stat(filepath.Join(root, name)); err != nil || info.IsDir() {
 			return errors.New("incomplete Companion package")
 		}

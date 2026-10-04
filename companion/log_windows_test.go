@@ -17,6 +17,12 @@ func TestMain(m *testing.M) {
 	}
 	_ = os.Setenv("ProgramData", directory)
 	pipeName = fmt.Sprintf(`\\.\pipe\JonaHomelabCompanion-test-%d`, os.Getpid())
+	instance := os.Getenv("COMPANION_TEST_INSTANCE")
+	if instance == "" {
+		instance = fmt.Sprint(os.Getpid())
+	}
+	windowClassName += "-test-" + instance
+	trayMutexName += "-test-" + instance
 	code := m.Run()
 	_ = os.RemoveAll(directory)
 	os.Exit(code)

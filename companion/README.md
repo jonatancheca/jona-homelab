@@ -14,13 +14,19 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 El instalador conserva el emparejado, crea el servicio `JonaHomelabCompanion` como `LocalSystem` con arranque automático retrasado y recuperación ante errores. Abre TCP 47654 únicamente para la subred local en el perfil **Privado**. Comprueba la versión y la API antes de dar la instalación por terminada. No cambies el perfil de una red pública o no confiable para habilitarlo.
 
-La bandeja se inicia al entrar en Windows. Si no aparece:
+La bandeja se inicia diez segundos después de entrar en Windows, también con batería y sin límite de duración. Cada sesión interactiva tiene su propio icono. Si Explorer tarda en arrancar o se reinicia, Companion reintenta registrar el icono.
+
+Abrir `JonaHomelab.Companion.exe` con doble clic muestra la ventana. Si ya hay una instancia en esa sesión, activa su ventana y la restaura si está minimizada. `--tray` conserva el arranque silencioso; `--show` abre la ventana expresamente. El servicio sigue usando `--service`.
+
+Para iniciar la bandeja manualmente:
 
 ```powershell
 Start-ScheduledTask -TaskName JonaHomelabCompanionTray
 ```
 
 Un fallo al crear la bandeja no detiene el servicio. Para omitirla expresamente: `install.ps1 -SkipTray`.
+
+El instalador y las actualizaciones automáticas aplican estos ajustes a la tarea existente. Para reparar solo el arranque de una instalación actualizada, ejecuta `tray-task.ps1` como administrador desde `current` y después inicia la tarea con el comando anterior.
 
 El icono de servidores identifica el Companion en la bandeja y reaparece si Explorer se reinicia. Los avisos y confirmaciones usan el tema oscuro de la aplicación, admiten teclado y se adaptan al escalado de Windows. En la confirmación para rotar el código, **Cancel** recibe el foco inicial; Escape o cerrar el diálogo cancela la acción.
 
@@ -59,7 +65,7 @@ Para otro destino desde PowerShell:
 .\diagnostics.ps1 -OutputDirectory "$env:USERPROFILE\Downloads"
 ```
 
-Incluye estado del servicio, comprobación HTTP, red, regla de firewall, eventos recientes y trazas. Contiene IP locales y rutas; **excluye el código de emparejado, las firmas y `config.json`**. No envía nada automáticamente. Una sección inaccesible queda registrada sin impedir las demás.
+Incluye estado del servicio, comprobación HTTP, red, regla de firewall, eventos recientes y trazas. También recoge configuración y último resultado de la tarea de bandeja, procesos de Companion/Explorer con sus sesiones y eventos del Programador de tareas si están disponibles. Contiene IP locales y rutas; **excluye el código de emparejado, las firmas y `config.json`**. No envía nada automáticamente. Una sección inaccesible queda registrada sin impedir las demás.
 
 Archivos en `C:\ProgramData\JonaHomelabCompanion`:
 

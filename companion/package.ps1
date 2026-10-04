@@ -13,7 +13,7 @@ try {
   $env:CGO_ENABLED = '0'
   go build -trimpath -ldflags '-s -w -H=windowsgui' -o (Join-Path $package 'JonaHomelab.Companion.exe') .
   if ($LASTEXITCODE -ne 0) { throw 'Companion compilation failed.' }
-  Copy-Item -LiteralPath 'install.ps1', 'uninstall.ps1', 'diagnostics.ps1', 'README.md' -Destination $package
+  Copy-Item -LiteralPath 'install.ps1', 'uninstall.ps1', 'diagnostics.ps1', 'tray-task.ps1', 'README.md' -Destination $package
   Set-Content -LiteralPath (Join-Path $package 'RELEASE_VERSION') -Value $Version -NoNewline -Encoding Ascii
   $zip = Join-Path $root "jona-homelab-companion-$Version-win-x64.zip"
   Compress-Archive -Path (Join-Path $package '*') -DestinationPath $zip
