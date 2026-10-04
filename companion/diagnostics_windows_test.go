@@ -135,16 +135,22 @@ func TestDiagnosticsArgumentsTreatScriptPathLiterally(t *testing.T) {
 func TestDiagnosticsDialogReportsCompletionCancellationAndFailure(t *testing.T) {
 	directory := `C:\Program Files\JonaHomelabCompanion\current\diagnostics`
 	success := diagnosticsDialogContent(directory, nil)
-	if success.title != "Diagnostics ready" || !strings.Contains(success.body, directory) {
+	if success.title != "Diagnostics ready" || !strings.Contains(success.body, directory) || success.confirm != "Open folder" || success.dismiss != "Close" {
 		t.Fatal("completion must identify the saved report directory")
 	}
 	cancelled := diagnosticsDialogContent(directory, fmt.Errorf("start: %w", windows.ERROR_CANCELLED))
-	if cancelled.title != "Diagnostics cancelled" || cancelled.tone != dialogWarning {
+	if cancelled.title != "Diagnostics cancelled" || cancelled.tone != dialogWarning || cancelled.confirm != "" {
 		t.Fatal("UAC cancellation must not claim success or a service outage")
 	}
 	failure := diagnosticsDialogContent(directory, fmt.Errorf("script exited with code 1"))
-	if failure.title != "Could not generate diagnostics" || failure.tone != dialogError || !strings.Contains(failure.body, "code 1") {
+	if failure.title != "Could not generate diagnostics" || failure.tone != dialogError || !strings.Contains(failure.body, "code 1") || failure.confirm != "" {
 		t.Fatal("generation failure must be reported")
+	}
+}
+
+func TestOpenDiagnosticsFolderRejectsMissingDirectory(t *testing.T) {
+	if err := openDiagnosticsFolder(0, filepath.Join(t.TempDir(), "missing")); err == nil {
+		t.Fatal("missing diagnostics directory reported as opened")
 	}
 }
 

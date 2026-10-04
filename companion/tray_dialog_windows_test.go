@@ -3,6 +3,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"image"
 	"image/png"
@@ -16,6 +17,70 @@ import (
 
 	"golang.org/x/sys/windows"
 )
+
+func TestDiagnosticsResultOpensOnlyRequestedFolder(t *testing.T) {
+	if os.Getenv("COMPANION_UI_TEST") != "1" {
+		t.Skip("set COMPANION_UI_TEST=1 to exercise native windows")
+	}
+	for _, action := range []string{"open", "close", "open-failed", "cancelled"} {
+		t.Run(action, func(t *testing.T) {
+			runtime.LockOSThread()
+			defer runtime.UnlockOSThread()
+			tray := &trayApplication{}
+			activeTray = tray
+			defer closeTestTray(tray)
+			if err := tray.create(); err != nil {
+				t.Fatal(err)
+			}
+			tray.setStatus("Service unavailable", trayStatusError)
+			directory := filepath.Join(t.TempDir(), "Companion's $reports & files")
+			calls, dialogs := 0, 0
+			tray.openFolder = func(owner windows.HWND, path string) error {
+				calls++
+				if owner != tray.hwnd || path != directory {
+					t.Error("folder opener did not receive the exact diagnostic destination")
+				}
+				if action == "open-failed" {
+					return errors.New("folder was moved")
+				}
+				return nil
+			}
+			callback := windows.NewCallback(func(_ windows.HWND, _ uint32, _ uintptr, _ uint32) uintptr {
+				if tray.dialog == 0 {
+					return 0
+				}
+				dialogs++
+				id := idDialogCancel
+				if dialogs == 1 && strings.HasPrefix(action, "open") {
+					id = idYes
+				}
+				if dialogs == 2 && dialogWindows[tray.dialog].content.title != "Could not open diagnostics folder" {
+					t.Error("folder launch failure was not explained")
+				}
+				procSendMessage.Call(uintptr(tray.dialog), wmCommand, uintptr(id), 0)
+				return 0
+			})
+			timer, _, _ := user32.NewProc("SetTimer").Call(0, 0, 50, callback)
+			defer user32.NewProc("KillTimer").Call(0, timer)
+			result := &trayResult{action: "diagnostics", diagnosticsDirectory: directory}
+			if action == "cancelled" {
+				result.err = windows.ERROR_CANCELLED
+			}
+			tray.pending = result
+			tray.finishAction()
+			wantCalls, wantDialogs := 0, 1
+			if strings.HasPrefix(action, "open") {
+				wantCalls = 1
+			}
+			if action == "open-failed" {
+				wantDialogs = 2
+			}
+			if calls != wantCalls || dialogs != wantDialogs || windowText(tray.status) != "Service unavailable" {
+				t.Fatalf("diagnostics changed status or mishandled the folder action: opens=%d dialogs=%d", calls, dialogs)
+			}
+		})
+	}
+}
 
 // Opt-in native smoke tests: real modal loop, native keyboard handling, DPI and
 // optional screenshots. No service, pairing data or system power calls.
@@ -40,7 +105,9 @@ func TestCompanionNativeDialogs(t *testing.T) {
 		{"rotate-confirm", 96, confirmation, "confirm", idYes},
 		{"local-build", 96, updateDialogContent(updateCheckResult{LocalBuild: true}), "escape", idDialogCancel},
 		{"long-error", 96, dialogContent{title: "Could not check for updates", body: strings.Repeat("Connection error: the server did not respond.\n", 50), tone: dialogError}, "escape", idDialogCancel},
-		{"diagnostics-ready", 96, diagnosticsDialogContent(`C:\Program Files\JonaHomelabCompanion\current\diagnostics`, nil), "enter", idDialogOK},
+		{"diagnostics-ready", 96, diagnosticsDialogContent(`C:\Program Files\JonaHomelabCompanion\current\diagnostics`, nil), "enter", idDialogCancel},
+		{"diagnostics-open-folder", 144, diagnosticsDialogContent(`C:\Program Files\JonaHomelabCompanion\current\diagnostics`, nil), "confirm", idYes},
+		{"diagnostics-close", 192, diagnosticsDialogContent(`C:\Program Files\JonaHomelabCompanion\current\diagnostics`, nil), "escape", idDialogCancel},
 		{"diagnostics-cancelled", 144, diagnosticsDialogContent("", windows.ERROR_CANCELLED), "escape", idDialogCancel},
 	}
 	for _, test := range tests {

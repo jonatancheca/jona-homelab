@@ -16,6 +16,8 @@ El instalador conserva el emparejado, crea el servicio `JonaHomelabCompanion` co
 
 La bandeja se inicia diez segundos después de entrar en Windows, también con batería y sin límite de duración. Cada sesión interactiva tiene su propio icono. Si Explorer tarda en arrancar o se reinicia, Companion reintenta registrar el icono.
 
+Si el servicio todavía no ha arrancado, la bandeja reintenta conectarse cada cinco segundos, incluso con la ventana oculta. Recupera el estado y el código de emparejado cuando el servicio responde, sin mostrar errores modales durante el arranque ni necesitar **Refresh**. Al abrir la ventana mientras espera, conserva la comprobación de actualizaciones hasta conectar.
+
 Abrir `JonaHomelab.Companion.exe` con doble clic muestra la ventana. Si ya hay una instancia en esa sesión, activa su ventana y la restaura si está minimizada. `--tray` conserva el arranque silencioso; `--show` abre la ventana expresamente. El servicio sigue usando `--service`.
 
 Para iniciar la bandeja manualmente:
@@ -57,7 +59,7 @@ Desde la carpeta extraída o `C:\Program Files\JonaHomelabCompanion\current`, ej
 
 Genera un **ZIP en la subcarpeta `diagnostics` junto a `diagnostics.ps1` y al ejecutable**, independientemente de la carpeta desde la que lo invoques. Puedes compartirlo para investigar errores. Funciona aunque el servicio esté parado. Ejecutarlo como administrador permite recoger todas las secciones y escribir en la instalación de `Program Files`.
 
-También puedes pulsar **Generate diagnostics** en la ventana del Companion o en el menú contextual de su icono de bandeja. Windows solicita permiso de administrador para esta operación. La ventana sigue respondiendo mientras se genera el informe y confirma la carpeta de destino al terminar; si cancelas el permiso o falla la generación, muestra el resultado sin cambiar el estado de conexión del servicio.
+También puedes pulsar **Generate diagnostics** en la ventana del Companion o en el menú contextual de su icono de bandeja. Windows solicita permiso de administrador para esta operación. La ventana sigue respondiendo mientras se genera el informe y confirma la carpeta de destino al terminar. **Open folder** abre esa carpeta en el Explorador sin pedir elevación; **Close** cierra el aviso. Si cancelas el permiso o falla la generación, muestra el resultado sin ofrecer abrir la carpeta ni cambiar el estado de conexión del servicio.
 
 Para otro destino desde PowerShell:
 

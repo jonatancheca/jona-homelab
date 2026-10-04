@@ -29,6 +29,7 @@ const (
 	wmShowCompanion  = 0x8003
 	wmTimer          = 0x0113
 	trayIconTimer    = 1
+	trayServiceTimer = 2
 	wmNull           = 0x0000
 	wmLButtonDown    = 0x0201
 	wmLButtonDblClk  = 0x0203
@@ -219,6 +220,8 @@ type trayApplication struct {
 	versionText    string
 	request        func(string) ([]byte, error)
 	iconRetry      bool
+	serviceRetry   bool
+	openFolder     func(windows.HWND, string) error
 }
 
 func runTray(showWindow bool) error {
@@ -434,6 +437,9 @@ func (t *trayApplication) windowProc(hwnd windows.HWND, message uint32, wParam, 
 		if wParam == trayIconTimer {
 			t.ensureIcon()
 		}
+		if wParam == trayServiceTimer && t.serviceRetry && t.dialog == 0 {
+			t.refreshInfo()
+		}
 		return 0
 	case wmCreate:
 		return 0
@@ -476,6 +482,7 @@ func (t *trayApplication) windowProc(hwnd windows.HWND, message uint32, wParam, 
 		return 0
 	case wmDestroy:
 		user32.NewProc("KillTimer").Call(uintptr(hwnd), trayIconTimer)
+		t.setServiceRetry(false)
 		t.removeIcon()
 		t.hwnd = 0
 		procPostQuitMessage.Call(0)
@@ -524,7 +531,7 @@ func (t *trayApplication) startAction(action string) {
 		setWindowText(t.diagnostics, "Generating...")
 	} else if action == "open-update" {
 		setWindowText(t.version, t.versionText+" · Checking for updates...")
-	} else {
+	} else if action != "auto-refresh" || !t.serviceRetry {
 		t.setStatus("Connecting to service", trayStatusPending)
 	}
 	for _, button := range []windows.HWND{t.copy, t.rotate, t.refresh, t.update, t.diagnostics} {
@@ -560,7 +567,7 @@ func (t *trayApplication) startAction(action string) {
 }
 
 func actionForPipe(action string) string {
-	if action == "copy" || action == "refresh" {
+	if action == "copy" || action == "refresh" || action == "auto-refresh" {
 		return "get-info"
 	}
 	return action
@@ -574,11 +581,9 @@ func (t *trayApplication) finishAction() {
 	t.mu.Unlock()
 	defer func() {
 		// An opening queued during the startup refresh must still check once.
-		if t.updateOnOpen {
+		if t.updateOnOpen && result != nil && result.err == nil && actionForPipe(result.action) == "get-info" {
 			t.updateOnOpen = false
-			if result != nil && result.err == nil && result.action != "update" && result.action != "open-update" {
-				t.startAction("open-update")
-			}
+			t.startAction("open-update")
 		}
 	}()
 	for _, button := range []windows.HWND{t.copy, t.rotate, t.refresh, t.update, t.diagnostics} {
@@ -587,6 +592,14 @@ func (t *trayApplication) finishAction() {
 	setWindowText(t.diagnostics, "Generate diagnostics")
 	if result == nil {
 		return
+	}
+	if result.action == "diagnostics" {
+		// Diagnostics does not use the service pipe. Preserve its last known status.
+		t.showDiagnosticsResult(result.diagnosticsDirectory, result.err)
+		return
+	}
+	if _, status := trayServiceStatus(result.err); status == trayStatusError {
+		t.setServiceRetry(true)
 	}
 	if result.action == "open-update" {
 		text, status := trayServiceStatus(result.err)
@@ -597,14 +610,12 @@ func (t *trayApplication) finishAction() {
 		setWindowText(t.version, t.versionText+" · "+automaticUpdateMessage(result.update, result.err))
 		return
 	}
-	if result.action == "diagnostics" {
-		// Diagnostics does not use the service pipe. Preserve its last known status.
-		t.showDialog(diagnosticsDialogContent(result.diagnosticsDirectory, result.err))
-		return
-	}
 	if result.err != nil {
 		text, status := trayServiceStatus(result.err)
 		t.setStatus(text, status)
+		if result.action == "auto-refresh" {
+			return // Logon and reconnection never block the tray with an error modal.
+		}
 		title := "Service unavailable"
 		if status == trayStatusConnected {
 			title = "Action could not be completed"
@@ -620,7 +631,7 @@ func (t *trayApplication) finishAction() {
 		t.showDialog(updateDialogContent(result.update))
 		return
 	}
-	t.updateInfo(result.info)
+	t.updateInfo(result.info, result.action != "auto-refresh")
 	if result.action == "copy" || result.action == "rotate" {
 		if err := setClipboardText(result.info.PairingCode); err != nil {
 			t.showDialog(dialogContent{title: "Clipboard unavailable", body: err.Error(), tone: dialogError})
@@ -661,16 +672,33 @@ func automaticUpdateMessage(result updateCheckResult, err error) string {
 	return "Up to date"
 }
 
-func (t *trayApplication) refreshInfo() { t.startAction("refresh") }
+func (t *trayApplication) refreshInfo() { t.startAction("auto-refresh") }
 
-func (t *trayApplication) updateInfo(info pipeInfo) {
+func (t *trayApplication) setServiceRetry(enabled bool) {
+	if enabled == t.serviceRetry {
+		return
+	}
+	t.serviceRetry = enabled
+	if enabled {
+		// The delayed-start service may appear minutes after the logon task.
+		// Keep retrying read-only get-info until it answers, including while hidden.
+		user32.NewProc("SetTimer").Call(uintptr(t.hwnd), trayServiceTimer, 5000, 0)
+	} else {
+		user32.NewProc("KillTimer").Call(uintptr(t.hwnd), trayServiceTimer)
+	}
+}
+
+func (t *trayApplication) updateInfo(info pipeInfo, notifyUpdateFailure bool) {
+	t.setServiceRetry(false)
 	t.setStatus("Service connected", trayStatusConnected)
 	if info.Update.active() {
 		t.setStatus("Updating: "+info.Update.Phase, trayStatusPending)
 	}
 	if info.Update.Phase == "failed" || info.Update.Phase == "rolled-back" {
 		t.setStatus("Update failed; service connected", trayStatusConnected)
-		t.showDialog(dialogContent{title: "Update failed", body: info.Update.Error, tone: dialogError})
+		if notifyUpdateFailure {
+			t.showDialog(dialogContent{title: "Update failed", body: info.Update.Error, tone: dialogError})
+		}
 	}
 	setWindowText(t.code, info.PairingCode)
 	lastCall := "Last server call: Never"

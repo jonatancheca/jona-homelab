@@ -39,6 +39,7 @@ var (
 
 type dialogContent struct {
 	title, body, confirm string
+	dismiss              string
 	tone                 int
 }
 
@@ -231,7 +232,11 @@ func (d *companionDialog) init() error {
 	s.controls[primary] = buttonStyle
 	focus, defaultID := primary, primaryID
 	if d.content.confirm != "" {
-		focus = v.button("Cancel", d.width-260, d.height-64, 100, 40, idDialogCancel, trayBackground)
+		dismiss := d.content.dismiss
+		if dismiss == "" {
+			dismiss = "Cancel"
+		}
+		focus = v.button(dismiss, d.width-260, d.height-64, 100, 40, idDialogCancel, trayBackground)
 		defaultID = idDialogCancel // Enter never rotates a code without choosing the action.
 	}
 	procSendMessage.Call(uintptr(v.hwnd), 0x0401, uintptr(defaultID), 0) // DM_SETDEFID

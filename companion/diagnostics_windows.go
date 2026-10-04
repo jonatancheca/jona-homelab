@@ -98,5 +98,41 @@ func diagnosticsDialogContent(directory string, err error) dialogContent {
 	if err != nil {
 		return dialogContent{title: "Could not generate diagnostics", body: err.Error(), tone: dialogError}
 	}
-	return dialogContent{title: "Diagnostics ready", body: "The diagnostic ZIP was saved in:\n" + directory + "\n\nNothing was sent automatically."}
+	return dialogContent{title: "Diagnostics ready", body: "The diagnostic ZIP was saved in:\n" + directory + "\n\nNothing was sent automatically.", confirm: "Open folder", dismiss: "Close"}
+}
+
+func (t *trayApplication) showDiagnosticsResult(directory string, err error) {
+	if !t.showDialog(diagnosticsDialogContent(directory, err)) || err != nil {
+		return
+	}
+	open := t.openFolder
+	if open == nil {
+		open = openDiagnosticsFolder
+	}
+	if err := open(t.hwnd, directory); err != nil {
+		t.showDialog(dialogContent{title: "Could not open diagnostics folder", body: err.Error(), tone: dialogError})
+	}
+}
+
+func openDiagnosticsFolder(owner windows.HWND, directory string) error {
+	info, err := os.Stat(directory)
+	if err != nil {
+		return fmt.Errorf("open diagnostics folder: %w", err)
+	}
+	if !info.IsDir() {
+		return errors.New("the diagnostics folder is no longer a directory")
+	}
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	if err := windows.CoInitializeEx(0, windows.COINIT_APARTMENTTHREADED|windows.COINIT_DISABLE_OLE1DDE); err != nil && err != syscall.Errno(1) {
+		return fmt.Errorf("initialize folder launcher: %w", err)
+	}
+	defer windows.CoUninitialize()
+	// Pass the directory as a literal Shell item, without a command shell or UAC.
+	launch := shellExecuteInfo{Mask: 0x100 | 0x400, Window: owner, Verb: utf16("open"), File: utf16(directory), Show: swShow}
+	launch.Size = uint32(unsafe.Sizeof(launch))
+	if ok, _, err := procShellExecuteEx.Call(uintptr(unsafe.Pointer(&launch))); ok == 0 {
+		return fmt.Errorf("open diagnostics folder: %w", err)
+	}
+	return nil
 }
