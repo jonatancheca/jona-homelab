@@ -30,7 +30,6 @@ const (
 	wmTimer          = 0x0113
 	trayIconTimer    = 1
 	trayServiceTimer = 2
-	wmNull           = 0x0000
 	wmLButtonDown    = 0x0201
 	wmLButtonDblClk  = 0x0203
 	wmRButtonDown    = 0x0204
@@ -38,15 +37,12 @@ const (
 	ninSelect        = 0x0400
 	ninKeySelect     = 0x0401
 
-	wsCaption      = 0x00C00000
-	wsSysMenu      = 0x00080000
-	wsMinimizeBox  = 0x00020000
-	wsChild        = 0x40000000
-	wsVisible      = 0x10000000
-	wsTabStop      = 0x00010000
-	wsPopup        = 0x80000000
-	wsExTopmost    = 0x00000008
-	wsExToolWindow = 0x00000080
+	wsCaption     = 0x00C00000
+	wsSysMenu     = 0x00080000
+	wsMinimizeBox = 0x00020000
+	wsChild       = 0x40000000
+	wsVisible     = 0x10000000
+	wsTabStop     = 0x00010000
 
 	esReadOnly    = 0x0800
 	esAutoHScroll = 0x0080
@@ -67,15 +63,8 @@ const (
 	nifTip             = 0x00000004
 	nimAdd             = 0x00000000
 	nimDelete          = 0x00000002
-	nimSetFocus        = 0x00000003
 	nimSetVersion      = 0x00000004
 	notifyIconVersion4 = 4
-
-	mfString       = 0x00000000
-	mfSeparator    = 0x00000800
-	tpmRightButton = 0x00000002
-	tpmNoNotify    = 0x00000080
-	tpmReturnCmd   = 0x00000100
 
 	cfUnicodeText = 13
 	gmemMoveable  = 0x00000002
@@ -94,7 +83,6 @@ type trayEventKind uint8
 const (
 	trayEventIgnored trayEventKind = iota
 	trayEventShow
-	trayEventMenu
 )
 
 var (
@@ -119,11 +107,6 @@ var (
 	procSendMessage         = user32.NewProc("SendMessageW")
 	procEnableWindow        = user32.NewProc("EnableWindow")
 	procSetForegroundWindow = user32.NewProc("SetForegroundWindow")
-	procGetCursorPos        = user32.NewProc("GetCursorPos")
-	procCreatePopupMenu     = user32.NewProc("CreatePopupMenu")
-	procAppendMenu          = user32.NewProc("AppendMenuW")
-	procTrackPopupMenu      = user32.NewProc("TrackPopupMenu")
-	procDestroyMenu         = user32.NewProc("DestroyMenu")
 	procMessageBox          = user32.NewProc("MessageBoxW")
 	procOpenClipboard       = user32.NewProc("OpenClipboard")
 	procCloseClipboard      = user32.NewProc("CloseClipboard")
@@ -452,11 +435,8 @@ func (t *trayApplication) windowProc(hwnd windows.HWND, message uint32, wParam, 
 		}
 		return 0
 	case wmTrayMessage:
-		switch trayEventKindFor(lParam) {
-		case trayEventShow:
+		if trayEventKindFor(lParam) == trayEventShow {
 			t.show()
-		case trayEventMenu:
-			t.showMenu()
 		}
 		return 0
 	case wmAppResult:
@@ -734,56 +714,12 @@ func (t *trayApplication) show() {
 	}
 }
 
-func (t *trayApplication) showMenu() {
-	if t.dialog != 0 {
-		procSetForegroundWindow.Call(uintptr(t.dialog))
-		return
-	}
-	menu, _, _ := procCreatePopupMenu.Call()
-	if menu == 0 {
-		return
-	}
-	defer procDestroyMenu.Call(menu)
-	appendMenu(menu, mfString, idCopy, "Copy pairing code")
-	appendMenu(menu, mfString, idRefresh, "Refresh")
-	appendMenu(menu, mfString, idUpdate, "Check for updates")
-	appendMenu(menu, mfString, idDiagnostics, "Generate diagnostics")
-	appendMenu(menu, mfSeparator, 0, "")
-	appendMenu(menu, mfString, idExit, "Exit tray")
-	var point nativePoint
-	procGetCursorPos.Call(uintptr(unsafe.Pointer(&point)))
-	command := trackTrayMenu(menu, point, t.instance)
-	procShellNotifyIcon.Call(nimSetFocus, uintptr(unsafe.Pointer(&t.icon)))
-	procPostMessage.Call(uintptr(t.hwnd), wmNull, 0, 0)
-	if command != 0 {
-		t.command(command)
-	}
-}
-
-func trackTrayMenu(menu uintptr, point nativePoint, instance uintptr) int {
-	// A hidden/minimized main window cannot reliably take foreground from
-	// Explorer's notification-area flyout. A visible, zero-size tool window
-	// owns the menu without showing the main window or adding a taskbar button.
-	owner := createWindowEx(wsExToolWindow|wsExTopmost, utf16("STATIC"), utf16("Companion tray menu"), wsPopup|wsVisible, int(point.X), int(point.Y), 0, 0, 0, 0, instance)
-	if owner == 0 {
-		return 0
-	}
-	defer procDestroyWindow.Call(owner)
-	procSetForegroundWindow.Call(owner)
-	// Dispatch only after the temporary owner is destroyed so commands can
-	// open their own dialogs without losing focus to menu cleanup.
-	command, _, _ := procTrackPopupMenu.Call(menu, tpmRightButton|tpmNoNotify|tpmReturnCmd, uintptr(point.X), uintptr(point.Y), 0, owner, 0)
-	return int(command)
-}
-
 func trayEventKindFor(lParam uintptr) trayEventKind {
 	// NOTIFYICON_VERSION_4 packs the notification in LOWORD(lParam) and the
 	// icon ID in HIWORD(lParam). LOWORD also preserves legacy callback events.
 	switch uint32(lowWord(lParam)) {
-	case wmLButtonDown, wmLButtonDblClk, ninSelect, ninKeySelect:
+	case wmLButtonDown, wmLButtonDblClk, ninSelect, ninKeySelect, wmContextMenu, wmRButtonDown, wmRButtonUp:
 		return trayEventShow
-	case wmContextMenu, wmRButtonDown, wmRButtonUp:
-		return trayEventMenu
 	default:
 		return trayEventIgnored
 	}
@@ -796,10 +732,6 @@ func createWindowEx(extended uint32, class, title *uint16, style uint32, x, y, w
 
 func createWindow(class, title *uint16, style uint32, x, y, width, height int, parent windows.HWND, instance uintptr) uintptr {
 	return createWindowEx(0, class, title, style, x, y, width, height, parent, 0, instance)
-}
-
-func appendMenu(menu uintptr, flags uint32, id int, title string) {
-	procAppendMenu.Call(menu, uintptr(flags), uintptr(id), uintptr(unsafe.Pointer(utf16(title))))
 }
 
 func utf16(value string) *uint16 {

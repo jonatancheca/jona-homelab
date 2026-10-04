@@ -35,9 +35,11 @@ func TestTrayEventKindUsesLowWordWithIconID(t *testing.T) {
 		{name: "double left click", event: wmLButtonDblClk, iconID: 9, want: trayEventShow},
 		{name: "enter after mouse selection", event: ninSelect, iconID: 1, want: trayEventShow},
 		{name: "keyboard activation", event: ninKeySelect, iconID: 7, want: trayEventShow},
-		{name: "context menu", event: wmContextMenu, iconID: 1, want: trayEventMenu},
-		{name: "legacy right button down", event: wmRButtonDown, iconID: 2, want: trayEventMenu},
-		{name: "legacy right click", event: wmRButtonUp, iconID: 3, want: trayEventMenu},
+		{name: "context menu", event: wmContextMenu, iconID: 1, want: trayEventShow},
+		{name: "right button down", event: wmRButtonDown, iconID: 2, want: trayEventShow},
+		{name: "right button up", event: wmRButtonUp, iconID: 3, want: trayEventShow},
+		{name: "legacy right button down", event: wmRButtonDown, want: trayEventShow},
+		{name: "legacy right button up", event: wmRButtonUp, want: trayEventShow},
 		{name: "hover", event: 0x0200, iconID: 1, want: trayEventIgnored},
 	}
 	for _, test := range tests {

@@ -30,7 +30,7 @@ Un fallo al crear la bandeja no detiene el servicio. Para omitirla expresamente:
 
 El instalador y las actualizaciones automáticas aplican estos ajustes a la tarea existente. Para reparar solo el arranque de una instalación actualizada, ejecuta `tray-task.ps1` como administrador desde `current` y después inicia la tarea con el comando anterior.
 
-El icono de servidores identifica el Companion en la bandeja y reaparece si Explorer se reinicia. Los avisos y confirmaciones usan el tema oscuro de la aplicación, admiten teclado y se adaptan al escalado de Windows. En la confirmación para rotar el código, **Cancel** recibe el foco inicial; Escape o cerrar el diálogo cancela la acción.
+El icono de servidores identifica el Companion en la bandeja y reaparece si Explorer se reinicia. Tanto el clic izquierdo como el derecho abren la ventana o la restauran si está minimizada. El icono no tiene menú contextual; las acciones están disponibles en la ventana. Los avisos y confirmaciones usan el tema oscuro de la aplicación, admiten teclado y se adaptan al escalado de Windows. En la confirmación para rotar el código, **Cancel** recibe el foco inicial; Escape o cerrar el diálogo cancela la acción.
 
 ## Conectar con la web
 
@@ -59,7 +59,7 @@ Desde la carpeta extraída o `C:\Program Files\JonaHomelabCompanion\current`, ej
 
 Genera un **ZIP en la subcarpeta `diagnostics` junto a `diagnostics.ps1` y al ejecutable**, independientemente de la carpeta desde la que lo invoques. Puedes compartirlo para investigar errores. Funciona aunque el servicio esté parado. Ejecutarlo como administrador permite recoger todas las secciones y escribir en la instalación de `Program Files`.
 
-También puedes pulsar **Generate diagnostics** en la ventana del Companion o en el menú contextual de su icono de bandeja. Windows solicita permiso de administrador para esta operación. La ventana sigue respondiendo mientras se genera el informe y confirma la carpeta de destino al terminar. **Open folder** abre esa carpeta en el Explorador sin pedir elevación; **Close** cierra el aviso. Si cancelas el permiso o falla la generación, muestra el resultado sin ofrecer abrir la carpeta ni cambiar el estado de conexión del servicio.
+También puedes pulsar **Generate diagnostics** en la ventana del Companion. Windows solicita permiso de administrador para esta operación. La ventana sigue respondiendo mientras se genera el informe y confirma la carpeta de destino al terminar. **Open folder** abre esa carpeta en el Explorador sin pedir elevación; **Close** cierra el aviso. Si cancelas el permiso o falla la generación, muestra el resultado sin ofrecer abrir la carpeta ni cambiar el estado de conexión del servicio.
 
 Para otro destino desde PowerShell:
 
