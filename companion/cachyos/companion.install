@@ -1,0 +1,19 @@
+post_install() {
+    systemctl enable jona-homelab-companion.service
+    if [ -d /run/systemd/system ]; then
+        systemctl daemon-reload && systemctl start jona-homelab-companion.service
+    fi
+}
+
+post_upgrade() {
+    if [ -d /run/systemd/system ]; then
+        systemctl daemon-reload && systemctl try-restart jona-homelab-companion.service
+    fi
+}
+
+pre_remove() {
+    if [ -d /run/systemd/system ]; then
+        systemctl stop jona-homelab-companion.service
+    fi
+    systemctl disable jona-homelab-companion.service
+}

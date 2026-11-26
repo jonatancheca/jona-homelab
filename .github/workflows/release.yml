@@ -101,6 +101,31 @@ jobs:
             artifacts/jona-homelab.tar.gz.sha256
             artifacts/update.sh
 
+  cachyos:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.24.x'
+          cache-dependency-path: companion/go.sum
+      - name: Test and package CachyOS Companion
+        run: python3 companion/package-cachyos.py --release "main-${GITHUB_SHA::12}"
+      - name: Smoke test installed package and Qt tray
+        run: |
+          docker build -t companion-qt-test - <<'DOCKERFILE'
+          FROM archlinux:base-devel
+          RUN pacman -Syu --needed --noconfirm pyside6 polkit python
+          DOCKERFILE
+          docker run --rm --network=none -v "$PWD/artifacts:/packages:ro" \
+            -v "$PWD/tests/companion-cachyos.py:/smoke.py:ro" companion-qt-test python /smoke.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cachyos-companion
+          path: artifacts/jona-homelab-companion-cachyos-x86_64.pkg.tar.zst*
+          if-no-files-found: error
+
   windows:
     if: github.ref == 'refs/heads/main'
     runs-on: windows-latest
@@ -156,7 +181,7 @@ jobs:
 
   publish:
     if: github.ref == 'refs/heads/main'
-    needs: [linux, windows]
+    needs: [linux, windows, cachyos]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -166,6 +191,12 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: linux-release
+          path: artifacts
+
+      - name: Download CachyOS artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: cachyos-companion
           path: artifacts
 
       - name: Download Windows artifacts
@@ -188,6 +219,8 @@ jobs:
             artifacts/jona-homelab.tar.gz
             artifacts/jona-homelab.tar.gz.sha256
             artifacts/update.sh
+            artifacts/jona-homelab-companion-cachyos-x86_64.pkg.tar.zst
+            artifacts/jona-homelab-companion-cachyos-x86_64.pkg.tar.zst.sha256
             artifacts/jona-homelab-companion-win-x64.zip
             artifacts/jona-homelab-companion-win-x64.zip.sha256
           )

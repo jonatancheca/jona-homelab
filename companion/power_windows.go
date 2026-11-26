@@ -10,14 +10,6 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-type powerAction string
-
-const (
-	powerShutdown  powerAction = "shutdown"
-	powerSleep     powerAction = "sleep"
-	powerHibernate powerAction = "hibernate"
-)
-
 var errPowerUnsupported = errors.New("power state unavailable in Windows")
 
 var powerProfile = windows.NewLazySystemDLL("powrprof.dll")

@@ -15,7 +15,7 @@
   <a href="#desarrollo">Desarrollo</a>
 </p>
 
-Jona Homelab convierte un Ubuntu siempre encendido en el punto de control de los ordenadores de tu red. Abre el panel desde el móvil o el escritorio, consulta qué equipos responden y despiértalos con Wake-on-LAN. Con **Companion para Windows**, también puedes apagarlos, suspenderlos o hibernarlos.
+Jona Homelab convierte un Ubuntu siempre encendido en el punto de control de los ordenadores de tu red. Abre el panel desde el móvil o el escritorio, consulta qué equipos responden y despiértalos con Wake-on-LAN. Con **Companion para Windows o CachyOS con KDE Plasma**, también puedes apagarlos, suspenderlos o hibernarlos.
 
 ## Capturas
 
@@ -50,7 +50,7 @@ Jona Homelab convierte un Ubuntu siempre encendido en el punto de control de los
 
 El navegador accede al dominio protegido por Cloudflare Access. Un Tunnel lo conecta con el panel alojado en Ubuntu; ese servidor envía los paquetes Wake-on-LAN y consulta los equipos dentro de su red local.
 
-**El panel web** guarda dispositivos e historial en SQLite. **Companion** es un servicio de Windows 11 x64 con una ventana en la bandeja del sistema: copias su código de emparejado en el panel y queda listo para recibir órdenes autenticadas. El servicio funciona aunque no haya una sesión de Windows iniciada.
+**El panel web** guarda dispositivos e historial en SQLite. **Companion** es un servicio para Windows 11 x64 y CachyOS x86_64 con una ventana en la bandeja del sistema: copias su código de emparejado en el panel y queda listo para recibir órdenes autenticadas. El servicio funciona aunque no haya una sesión iniciada.
 
 | Método por equipo | Encender | Consultar estado | Control de energía |
 | --- | --- | --- | --- |
@@ -95,6 +95,7 @@ Cada commit que llega a `main` genera además una release oficial `main-<sha>` d
 - `jona-homelab.tar.gz`: runtime de `.output`, `RELEASE_VERSION`, actualizador, README y archivos de despliegue.
 - `jona-homelab.tar.gz.sha256`: checksum obligatorio del paquete.
 - `update.sh`: copia independiente para incorporar el actualizador a instalaciones antiguas.
+- `jona-homelab-companion-cachyos-x86_64.pkg.tar.zst` y `.sha256`: paquete pacman para CachyOS con KDE Plasma y su checksum.
 - `jona-homelab-companion-win-x64.zip`: servicio y bandeja Windows 11 x64 auto-contenidos.
 - `jona-homelab-companion-win-x64.zip.sha256`: checksum del paquete Windows.
 
@@ -161,6 +162,8 @@ El servicio funciona sin root, sin capacidades especiales y con el sistema de ar
 <summary><strong>Configurar Companion, SSH o solo Wake-on-LAN</strong></summary>
 
 ### Opción recomendada: Jona Homelab Companion
+
+**CachyOS con KDE Plasma (x86_64)** dispone de un paquete nativo con servicio systemd y bandeja Qt. Sigue la [guía de instalación y emparejado](companion/cachyos/README.md). Las instrucciones de ZIP y PowerShell de esta sección corresponden a Windows.
 
 Descarga `jona-homelab-companion-win-x64.zip` y su `.sha256` desde la misma release. Verifica el checksum, extrae el ZIP y ejecuta `install.ps1` como administrador. El instalador crea el servicio automático, la tarea de bandeja, el firewall del perfil privado (TCP 47654) y el estado protegido en `C:\ProgramData\JonaHomelabCompanion`.
 

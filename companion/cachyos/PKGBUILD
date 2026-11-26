@@ -1,0 +1,22 @@
+# Assemble from the staged binary and Companion files supplied by package-cachyos.sh.
+pkgname=jona-homelab-companion
+pkgver=$(<VERSION)
+pkgrel=1
+pkgdesc="Jona Homelab Companion service and KDE Plasma tray"
+arch=('x86_64')
+url='https://github.com/jonatancheca/jona-homelab'
+depends=('systemd' 'pacman' 'libarchive' 'polkit' 'python' 'pyside6')
+options=('!strip' '!debug')
+install=companion.install
+
+package() {
+    install -Dm755 "$startdir/companion-daemon" "$pkgdir/usr/bin/jona-homelab-companion"
+    install -Dm755 "$startdir/tray.py" "$pkgdir/usr/bin/jona-homelab-companion-tray"
+    install -Dm644 "$startdir/RELEASE_VERSION" "$pkgdir/usr/share/$pkgname/RELEASE_VERSION"
+    install -Dm644 "$startdir/README.md" "$pkgdir/usr/share/doc/$pkgname/README.md"
+    for unit in "$pkgname.service" "$pkgname-update@.service"; do
+        install -Dm644 "$startdir/$unit" "$pkgdir/usr/lib/systemd/system/$unit"
+    done
+    install -Dm644 "$startdir/$pkgname.desktop" "$pkgdir/usr/share/applications/$pkgname.desktop"
+    install -Dm644 "$startdir/autostart.desktop" "$pkgdir/etc/xdg/autostart/$pkgname.desktop"
+}

@@ -265,7 +265,7 @@ onUnmounted(() => {
           <fieldset class="remote-method" :disabled="saving">
             <legend>Remote method</legend>
             <label><input v-model="form.remoteMethod" type="radio" value="ssh" /><span><strong>SSH</strong><small>Use the restricted OpenSSH account already configured on Windows.</small></span></label>
-            <label><input v-model="form.remoteMethod" type="radio" value="companion" /><span><strong>Companion</strong><small>Use the Jona Homelab Windows service and tray app.</small></span></label>
+            <label><input v-model="form.remoteMethod" type="radio" value="companion" /><span><strong>Companion</strong><small>Use Companion on Windows or CachyOS with KDE Plasma.</small></span></label>
             <label><input v-model="form.remoteMethod" type="radio" value="none" /><span><strong>Wake-on-LAN only</strong><small>No Companion or SSH. An address enables ping status; remote shutdown stays unavailable.</small></span></label>
           </fieldset>
         </div>
@@ -285,11 +285,11 @@ onUnmounted(() => {
         <h2 id="shutdown-title">{{ powerAction === 'sleep' ? 'Sleep' : powerAction === 'hibernate' ? 'Hibernate' : 'Shut down' }} {{ shutdownTarget?.name }}?</h2>
         <fieldset v-if="shutdownTarget?.remoteMethod === 'companion'" class="shutdown-options" :disabled="shuttingDown">
           <legend>Power action</legend>
-          <label><input v-model="powerAction" type="radio" value="shutdown" /><span><strong>Shut down</strong><small>Close Windows and turn off the PC.</small></span></label>
-          <label><input v-model="powerAction" type="radio" value="sleep" /><span><strong>Sleep</strong><small>Keep your session in memory. Requires sleep support in Windows.</small></span></label>
-          <label><input v-model="powerAction" type="radio" value="hibernate" /><span><strong>Hibernate</strong><small>Save your session to disk. Requires hibernation enabled in Windows.</small></span></label>
+          <label><input v-model="powerAction" type="radio" value="shutdown" /><span><strong>Shut down</strong><small>Shut down the operating system and turn off the PC.</small></span></label>
+          <label><input v-model="powerAction" type="radio" value="sleep" /><span><strong>Sleep</strong><small>Keep your session in memory. Requires sleep support on this PC.</small></span></label>
+          <label><input v-model="powerAction" type="radio" value="hibernate" /><span><strong>Hibernate</strong><small>Save your session to disk. Requires hibernation enabled on this PC.</small></span></label>
         </fieldset>
-        <p class="modal-intro">{{ powerAction === 'shutdown' ? shutdownDescription(shutdownTarget) : 'Companion will schedule this action. Check its logs if Windows rejects it. Wake-on-LAN availability depends on your PC settings.' }}</p>
+        <p class="modal-intro">{{ powerAction === 'shutdown' ? shutdownDescription(shutdownTarget) : 'Companion will schedule this action. Check its logs if the system rejects it. Wake-on-LAN availability depends on your PC settings.' }}</p>
         <fieldset v-if="powerAction === 'shutdown'" class="shutdown-options" :disabled="shuttingDown">
           <legend>Shutdown mode</legend>
           <label><input v-model="forceShutdown" type="radio" :value="false" /><span><strong>Safe shutdown</strong><small>Does not force applications to close. An application may block shutdown.</small></span></label>

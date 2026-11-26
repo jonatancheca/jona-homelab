@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Jona Homelab Companion
+Icon=network-server
+Terminal=false
+Exec=/usr/bin/jona-homelab-companion-tray --autostart
+OnlyShowIn=KDE;

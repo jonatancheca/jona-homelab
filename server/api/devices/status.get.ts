@@ -6,12 +6,11 @@ import { latestCompanionRelease, withCompanionRelease } from '../../core/compani
 export default apiHandler(async () => {
   const { store, settings } = getRuntime()
   const devices = store.list()
-  const [statuses, release] = await Promise.all([
-    checkDevicesStatus(devices, settings.ssh, device => store.companionSecretOrNull(device.id)),
-    devices.some(device => device.remoteMethod === 'companion') ? latestCompanionRelease() : Promise.resolve(null),
-  ])
-  return statuses.flatMap((status, index) => {
+  const statuses = await checkDevicesStatus(devices, settings.ssh, device => store.companionSecretOrNull(device.id))
+  const result = await Promise.all(statuses.map(async (status, index) => {
     const recorded = store.recordStatus(devices[index]!, status)
-    return recorded ? [release ? withCompanionRelease(recorded, release) : recorded] : []
-  })
+    if (!recorded?.companion) return recorded
+    return withCompanionRelease(recorded, await latestCompanionRelease(recorded.companion.platform))
+  }))
+  return result.filter(status => status != null)
 })

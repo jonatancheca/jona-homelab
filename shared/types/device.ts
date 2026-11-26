@@ -49,6 +49,7 @@ export interface CompanionOperation {
 }
 
 export interface CompanionStatus {
+  platform?: 'windows-x64' | 'cachyos-x64'
   version: string | null
   displayVersion?: string
   latestVersion: string | null

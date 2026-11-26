@@ -1,5 +1,7 @@
 # Jona Homelab Companion para Windows
 
+Para CachyOS x86_64 con KDE Plasma, consulta la [guía del paquete pacman](cachyos/README.md).
+
 Servicio Windows 11 x64 para consultar estado y apagar un PC desde Jona Homelab. Ejecutable Go autocontenido, sin .NET. El servicio funciona aunque no haya una sesión iniciada; la bandeja solo muestra el código de emparejado y el estado.
 
 ## Instalar

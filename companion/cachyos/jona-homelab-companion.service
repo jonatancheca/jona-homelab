@@ -1,0 +1,19 @@
+[Unit]
+Description=Jona Homelab Companion
+After=network.target systemd-logind.service
+
+[Service]
+ExecStart=/usr/bin/jona-homelab-companion serve
+Restart=on-failure
+RestartSec=3
+StateDirectory=jona-homelab-companion
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+RestrictAddressFamilies=AF_INET AF_UNIX AF_NETLINK
+
+[Install]
+WantedBy=multi-user.target

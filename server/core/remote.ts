@@ -13,7 +13,7 @@ const MAX_OUTPUT_BYTES = 64 * 1024
 export type CommandRunner = (command: string, args: string[], timeoutMs: number) => Promise<boolean>
 export type CompanionCommand = 'status' | 'shutdown-safe' | 'shutdown-force' | 'sleep' | 'hibernate'
 export type CompanionRunner = (device: Device, secret: string, command: CompanionCommand) => Promise<boolean>
-export interface CompanionReply { ready: boolean, version: string | null, displayVersion?: string, remoteUpdate: boolean, operation?: CompanionOperation }
+export interface CompanionReply { ready: boolean, version: string | null, displayVersion?: string, platform?: 'windows-x64' | 'cachyos-x64', remoteUpdate: boolean, operation?: CompanionOperation }
 export type CompanionStatusRunner = (device: Device, secret: string, command: CompanionCommand) => Promise<boolean | CompanionReply>
 
 export const runCommand: CommandRunner = (command, args, timeoutMs) => new Promise((resolve) => {
@@ -104,7 +104,7 @@ export async function requestCompanionPayload(device: Device, secret: string, pa
     const payload = JSON.parse(responseBody) as Record<string, unknown>
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new AppError(502, 'Respuesta de Companion no válida.')
     if (!response.ok) {
-      if (path === '/v1/power' && response.status === 409) throw new AppError(409, 'Windows does not support or has not enabled this power state. Check Companion diagnostics.')
+      if (path === '/v1/power' && response.status === 409) throw new AppError(409, 'The operating system does not support or has not enabled this power state. Check Companion diagnostics.')
       throw new AppError(response.status === 409 ? 409 : 502, typeof payload.error === 'string' ? payload.error.slice(0, 500) : 'Companion no aceptó la petición.')
     }
     return payload
@@ -140,7 +140,7 @@ export async function readCompanionStatus(device: Device, secret: string, fetche
         updatedAt: typeof value.updatedAt === 'string' ? value.updatedAt : undefined }
     }
   }
-  return { ready: payload.ready === true, version, displayVersion, remoteUpdate: payload.remoteUpdate === true, operation }
+  return { ready: payload.ready === true, version, displayVersion, platform: payload.platform === 'cachyos-x64' ? 'cachyos-x64' : 'windows-x64', remoteUpdate: payload.remoteUpdate === true, operation }
 }
 
 const readStatus: CompanionStatusRunner = async (device, secret) => {
@@ -170,6 +170,7 @@ export async function checkDeviceStatus(
   const companion = remoteMethod === 'companion' ? {
     version: typeof reply === 'object' ? reply.version : null, latestVersion: null,
     displayVersion: typeof reply === 'object' ? reply.displayVersion : undefined,
+    platform: typeof reply === 'object' ? reply.platform : undefined,
     remoteUpdate: typeof reply === 'object' && reply.remoteUpdate, state: 'unknown' as const,
     operation: typeof reply === 'object' ? reply.operation : undefined,
   } : undefined

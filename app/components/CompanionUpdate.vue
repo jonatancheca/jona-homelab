@@ -19,7 +19,7 @@ const stateLabel = computed(() => {
   return { current: 'Actualizado', available: 'Actualización disponible', unknown: 'No comprobado', local: 'Versión local', failed: 'Actualización fallida', updating: 'Actualizando' }[companion.value?.state || 'unknown']
 })
 const canUpdate = computed(() => Boolean(props.status?.remoteReady && companion.value?.remoteUpdate && companion.value.latestVersion
-  && companion.value.version?.startsWith('main-') && companion.value.version !== companion.value.latestVersion && !requesting.value && !updating.value))
+  && (companion.value.state === 'available' || companion.value.state === 'failed') && companion.value.version !== companion.value.latestVersion && !requesting.value && !updating.value))
 const operationError = computed(() => companion.value?.state === 'failed' ? companion.value.operation?.error : '')
 
 watch(() => props.status, (status) => {

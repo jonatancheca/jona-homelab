@@ -3,11 +3,12 @@ import { AppError } from './errors.ts'
 import { readCompanionStatus, requestCompanionPayload } from './remote.ts'
 
 const repository = 'jonatancheca/jona-homelab'
-const archive = 'jona-homelab-companion-win-x64.zip'
+const windowsArchive = 'jona-homelab-companion-win-x64.zip'
+export const cachyosArchive = 'jona-homelab-companion-cachyos-x86_64.pkg.tar.zst'
 const tagPattern = /^main-[a-f0-9]{12}$/
 export interface CompanionRelease { version: string | null, displayVersion?: string, checkedAt: string, error?: string }
 
-export function createReleaseLookup(fetcher: typeof fetch = fetch, now = Date.now) {
+export function createReleaseLookup(fetcher: typeof fetch = fetch, now = Date.now, archive = windowsArchive) {
   let cached: CompanionRelease | undefined
   let expires = 0
   let pending: Promise<CompanionRelease> | undefined
@@ -40,7 +41,15 @@ export function createReleaseLookup(fetcher: typeof fetch = fetch, now = Date.no
   }
 }
 
-export const latestCompanionRelease = createReleaseLookup()
+const windowsRelease = createReleaseLookup()
+const cachyosRelease = createReleaseLookup(fetch, Date.now, cachyosArchive)
+export function latestCompanionRelease(platform?: 'windows-x64' | 'cachyos-x64') {
+  return platform === 'cachyos-x64' ? cachyosRelease() : windowsRelease()
+}
+
+function canInstallPublishedRelease(device: { version: string | null, platform?: string }) {
+  return !!device.version && (tagPattern.test(device.version) || (device.platform === 'cachyos-x64' && device.version === 'local-cachyos'))
+}
 export const activeUpdatePhases = new Set(['checking', 'scheduled', 'downloading', 'verifying', 'installing', 'restarting'])
 
 export function withCompanionRelease(status: DeviceStatus, release: CompanionRelease): DeviceStatus {
@@ -48,7 +57,7 @@ export function withCompanionRelease(status: DeviceStatus, release: CompanionRel
   const companion = { ...status.companion, latestVersion: release.version, latestDisplayVersion: release.displayVersion, releaseCheckedAt: release.checkedAt, releaseError: release.error }
   const phase = companion.operation?.phase
   if (!status.remoteReady || !companion.version) companion.state = 'unknown'
-  else if (!tagPattern.test(companion.version)) companion.state = 'local'
+  else if (!canInstallPublishedRelease(companion)) companion.state = 'local'
   else if (phase && activeUpdatePhases.has(phase)) companion.state = 'updating'
   else if (phase === 'failed' || phase === 'rolled-back') companion.state = 'failed'
   else if (!release.version) companion.state = 'unknown'
@@ -66,7 +75,7 @@ export async function updateRemoteCompanion(device: Device, secret: string, fetc
     const current = await readCompanionStatus(device, secret, fetcher)
     if (!current.ready) throw new AppError(409, 'Companion no está disponible.')
     if (!current.remoteUpdate) throw new AppError(409, 'Esta versión necesita una primera instalación manual para admitir actualizaciones remotas.')
-    if (!current.version || !tagPattern.test(current.version)) throw new AppError(409, 'Las versiones locales requieren instalación manual.')
+    if (!canInstallPublishedRelease(current)) throw new AppError(409, 'Las versiones locales requieren instalación manual.')
     const payload = await requestCompanionPayload(device, secret, '/v1/update', '{}', fetcher, Date.now, 40_000)
     if (typeof payload.scheduled !== 'boolean' || (payload.targetVersion !== undefined && (typeof payload.targetVersion !== 'string' || !tagPattern.test(payload.targetVersion)))) throw new AppError(502, 'Respuesta de actualización no válida.')
     return { scheduled: payload.scheduled, localBuild: payload.localBuild === true, targetVersion: payload.targetVersion as string | undefined }

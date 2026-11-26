@@ -1,0 +1,12 @@
+[Unit]
+Description=Update Jona Homelab Companion to %i
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/jona-homelab-companion apply-update %i
+TimeoutStartSec=12min
+UMask=0077
+PrivateTmp=true
+ProtectHome=true

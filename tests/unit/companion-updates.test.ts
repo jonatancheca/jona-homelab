@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import type { Device, DeviceStatus } from '../../shared/types/device.ts'
-import { createReleaseLookup, updateRemoteCompanion, withCompanionRelease } from '../../server/core/companion-updates.ts'
+import { cachyosArchive, createReleaseLookup, updateRemoteCompanion, withCompanionRelease } from '../../server/core/companion-updates.ts'
 import { checkDeviceStatus, companionResponseSignature, readCompanionStatus } from '../../server/core/remote.ts'
 
 const version = 'main-111111111111'
@@ -35,6 +35,23 @@ test('release lookup coalesces requests, caches and rejects incomplete packages'
   assert.equal(calls, 2)
   await lookup()
   assert.equal(calls, 2)
+})
+
+test('CachyOS needs its own package and checksum, including for the first published update', async () => {
+  const linux = { ...release, assets: release.assets.map(asset => ({
+    name: asset.name.replace(archive, cachyosArchive),
+    browser_download_url: asset.browser_download_url.replace(archive, cachyosArchive),
+  })) }
+  for (const [metadata, expected] of [[release, null], [linux, version], [{ ...linux, assets: linux.assets.slice(0, 1) }, null]] as const) {
+    const lookup = createReleaseLookup(async () => Response.json(metadata), Date.now, cachyosArchive)
+    assert.equal((await lookup()).version, expected)
+  }
+  const reply = await readCompanionStatus(device, secret, signedFetcher(() => ({ ready: true, platform: 'cachyos-x64', version: 'local-cachyos', remoteUpdate: true })))
+  const checked = await checkDeviceStatus(device, undefined, async () => false, 'linux', secret, async () => reply)
+  assert.equal(checked.companion?.platform, 'cachyos-x64')
+  assert.equal(withCompanionRelease(checked, { version, checkedAt: '' }).companion?.state, 'available')
+  const result = await updateRemoteCompanion(device, secret, signedFetcher(path => path === '/v1/status' ? { ...reply } : { scheduled: true, targetVersion: version }))
+  assert.equal(result.targetVersion, version)
 })
 
 test('release errors do not change connectivity or claim latest version', () => {

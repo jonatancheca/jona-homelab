@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"time"
 
 	"golang.org/x/sys/windows/svc"
 )
@@ -66,30 +65,6 @@ func (companionService) Execute(_ []string, requests <-chan svc.ChangeRequest, s
 				return false, 1
 			}
 			return false, 0
-		}
-	}
-}
-
-func runUpdateLoop(ctx context.Context, updates *updateCoordinator) {
-	// Local repair packages must not silently replace themselves with an older release.
-	if !releaseTagPattern.MatchString(releaseVersion()) {
-		logEvent("update.disabled", map[string]any{"reason": "local build"})
-		return
-	}
-	select {
-	case <-time.After(5 * time.Second):
-		updates.checkAutomatically(ctx)
-	case <-ctx.Done():
-		return
-	}
-	ticker := time.NewTicker(24 * time.Hour)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ticker.C:
-			updates.checkAutomatically(ctx)
-		case <-ctx.Done():
-			return
 		}
 	}
 }

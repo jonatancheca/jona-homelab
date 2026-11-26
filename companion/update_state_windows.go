@@ -13,24 +13,6 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-type updateStatus struct {
-	Phase         string `json:"phase"`
-	TargetVersion string `json:"targetVersion,omitempty"`
-	Error         string `json:"error,omitempty"`
-	UpdatedAt     string `json:"updatedAt,omitempty"`
-	PID           uint32 `json:"pid,omitempty"`
-}
-
-func (s updateStatus) active() bool {
-	switch s.Phase {
-	case "checking", "scheduled", "downloading", "verifying", "installing", "restarting":
-		return true
-	}
-	return false
-}
-
-func updateStatusPath() string { return filepath.Join(dataDirectory(), "update-status.json") }
-
 // The handle stays exclusively open across service restarts and is released by
 // Windows if the updater crashes. It does not depend on a particular Go thread.
 func acquireUpdateLock() (windows.Handle, error) {
